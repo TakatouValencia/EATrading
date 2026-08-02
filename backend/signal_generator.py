@@ -1,3 +1,5 @@
+import os
+import json
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 from risk_calculator import calculate_pips, calculate_lot_size
@@ -8,14 +10,25 @@ class SignalGenerator:
         self.active_signals = {}  # symbol -> signal_dict
         self.cooldowns = {}       # symbol -> expiration_time
         self.cooldown_hours = cooldown_hours
+        
+        # Setup Custom LLM (OpenAI-compatible)
+        self.llm_api_key = os.getenv("LLM_API_KEY")
+        self.llm_base_url = os.getenv("LLM_BASE_URL")
+        self.llm_model_name = os.getenv("LLM_MODEL_NAME", "gpt-3.5-turbo")
+        
+        if self.llm_api_key and self.llm_base_url:
+            from openai import AsyncOpenAI
+            self.client = AsyncOpenAI(
+                api_key=self.llm_api_key,
+                base_url=self.llm_base_url,
+            )
+        else:
+            self.client = None
 
-    def evaluate_confluence(self, symbol: str, current_price: float, 
+    async def evaluate_confluence(self, symbol: str, current_price: float, 
                             events: List[Dict], obs: List[Dict], fvgs: List[Dict], sweeps: List[Dict] = None, htf_trend: str = None) -> Optional[Dict]:
         """
-        Evaluate if a new signal should be generated based on SMC confluence.
-        Rules:
-        - Must have BOS/CHoCH in signal direction.
-        - Plus 2 of: OB proximity, FVG unmitigated, Liquidity Sweep, HTF alignment.
+        Evaluate if a new signal should be generated based on SMC confluence and LLM approval.
         """
         
         # Check Cooldown
@@ -95,18 +108,68 @@ class SignalGenerator:
                     reasons.append("Bearish Liquidity Sweep")
                     break
 
-        # Check if Confluence met. Require stronger confluence (BOS + 2 other factors) to avoid spamming signals
-        # and wait for proper entry confirmations to maintain high Win Rate (WR).
         if confluence_score >= 2 and entry_target and sl_target:
             signal_type = "BUY LIMIT" if is_bullish else "SELL LIMIT"
             
-            # Very basic TP calculation (1:3 Risk Reward minimum)
             risk = abs(entry_target - sl_target)
             if is_bullish:
                 tp_target = entry_target + (risk * 3)
             else:
                 tp_target = entry_target - (risk * 3)
                 
+            # --- LLM APPROVAL PHASE ---
+            if self.client:
+                try:
+                    prompt = f"""
+You are an elite Smart Money Concept (SMC) trader analyzing a potential trade setup.
+Evaluate the following context and decide if it's a high probability setup.
+Return ONLY valid JSON. Do not include markdown formatting like ```json or any other text.
+
+Context:
+- Symbol: {symbol}
+- Current Price: {current_price}
+- Setup Type: {signal_type}
+- HTF Trend: {htf_trend or 'Unknown'}
+- Entry Target: {entry_target}
+- Stop Loss: {sl_target}
+- Take Profit: {tp_target}
+- Confluence Reasons: {', '.join(reasons)}
+
+JSON Format to Return:
+{{
+  "approved": true/false,
+  "confidence": <number 0-100>,
+  "reasoning": "<short string explaining why>"
+}}
+"""
+                    response = await self.client.chat.completions.create(
+                        model=self.llm_model_name,
+                        messages=[
+                            {"role": "system", "content": "You are a trading AI that outputs only raw JSON."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        temperature=0.2
+                    )
+                    
+                    response_text = response.choices[0].message.content.strip()
+                    if response_text.startswith("```"):
+                        lines = response_text.split('\n')
+                        if lines[0].startswith("```"): lines.pop(0)
+                        if lines[-1].startswith("```"): lines.pop(-1)
+                        response_text = '\n'.join(lines).strip()
+                    
+                    llm_decision = json.loads(response_text)
+                    
+                    if not llm_decision.get("approved"):
+                        print(f"[{symbol}] LLM Rejected: {llm_decision.get('reasoning')}")
+                        return None
+                        
+                    reasons.append(f"LLM Approved (Confidence: {llm_decision.get('confidence')}%)")
+                    reasons.append(f"LLM Reasoning: {llm_decision.get('reasoning')}")
+                    
+                except Exception as e:
+                    print(f"[{symbol}] LLM Evaluation Error: {e}. Proceeding without LLM.")
+
             # Calculate Lot Size
             settings = settings_manager.load_settings()
             acc_balance = float(settings.get("account_balance", 10000.0))
@@ -128,8 +191,6 @@ class SignalGenerator:
             }
             
             self.active_signals[symbol] = signal
-            
-            # Set cooldown so we don't spam
             self.cooldowns[symbol] = datetime.now() + timedelta(hours=self.cooldown_hours)
             
             return signal

@@ -1,9 +1,10 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import asyncio
 import json
 import os
+import traceback
 from typing import List
 from datetime import datetime
 from dotenv import load_dotenv
@@ -76,136 +77,146 @@ async def run_smc_analysis(tick: dict):
     Called by DataProvider whenever a new tick arrives.
     We append the tick to our active dataframe, run SMC logic, and check for signals.
     """
-    symbol = tick['symbol']
-    # In a real system, we'd maintain a stateful dataframe for each symbol
-    # For this MVP, let's assume we have a global dictionary of dataframes
-    if not hasattr(app.state, 'market_data'):
-        app.state.market_data = {}
+    try:
+        symbol = tick['symbol']
         
-    if symbol not in app.state.market_data:
-        # Fetch initial historical data
-        df_ltf = data_provider.get_historical_data(symbol, interval="5min")
-        df_htf = data_provider.get_historical_data(symbol, interval="1h")
-        app.state.market_data[symbol] = {"ltf": df_ltf, "htf": df_htf}
-    else:
-        df_ltf = app.state.market_data[symbol]["ltf"]
-        df_htf = app.state.market_data[symbol]["htf"]
-        
-        # Proper tick to candle aggregation logic
-        tick_time = tick.get('timestamp')
-        tick_price = tick['price']
-        
-        if isinstance(tick_time, str):
-            try:
-                tick_time_obj = datetime.fromisoformat(tick_time.replace('Z', '+00:00'))
-            except:
-                tick_time_obj = datetime.now()
-        else:
-            tick_time_obj = tick_time if hasattr(tick_time, 'minute') else datetime.now()
+        if not hasattr(app.state, 'market_data_lock'):
+            app.state.market_data_lock = asyncio.Lock()
             
-        # --- Update LTF (5min) ---
-        if df_ltf:
-            last_ltf = df_ltf[-1]
-            last_ltf_time = last_ltf['timestamp']
-            if isinstance(last_ltf_time, str):
-                try:
-                    last_ltf_time_obj = datetime.fromisoformat(last_ltf_time.replace('Z', '+00:00'))
-                except:
-                    last_ltf_time_obj = datetime.now()
-            else:
-                last_ltf_time_obj = last_ltf_time
+        # Secure the state using Lock to prevent race conditions during rapid ticks
+        async with app.state.market_data_lock:
+            if not hasattr(app.state, 'market_data'):
+                app.state.market_data = {}
                 
-            time_diff_ltf = (tick_time_obj - last_ltf_time_obj).total_seconds()
-            
-            if time_diff_ltf < 300: # Within 5 minutes
-                last_ltf['close'] = tick_price
-                last_ltf['high'] = max(last_ltf['high'], tick_price)
-                last_ltf['low'] = min(last_ltf['low'], tick_price)
+            if symbol not in app.state.market_data:
+                # Fetch initial historical data
+                df_ltf = data_provider.get_historical_data(symbol, interval="5min")
+                df_htf = data_provider.get_historical_data(symbol, interval="1h")
+                app.state.market_data[symbol] = {"ltf": df_ltf, "htf": df_htf}
             else:
-                new_candle = {
-                    'timestamp': tick_time_obj.isoformat(),
-                    'open': tick_price, 'high': tick_price, 'low': tick_price, 'close': tick_price, 'volume': 0
-                }
-                df_ltf.append(new_candle)
-                if len(df_ltf) > 1000: df_ltf.pop(0)
+                df_ltf = app.state.market_data[symbol]["ltf"]
+                df_htf = app.state.market_data[symbol]["htf"]
+                
+                # Proper tick to candle aggregation logic
+                tick_time = tick.get('timestamp')
+                tick_price = tick['price']
+                
+                if isinstance(tick_time, str):
+                    try:
+                        tick_time_obj = datetime.fromisoformat(tick_time.replace('Z', '+00:00'))
+                    except:
+                        tick_time_obj = datetime.now()
+                else:
+                    tick_time_obj = tick_time if hasattr(tick_time, 'minute') else datetime.now()
+                    
+                # --- Update LTF (5min) ---
+                if df_ltf:
+                    last_ltf = df_ltf[-1]
+                    last_ltf_time = last_ltf['timestamp']
+                    if isinstance(last_ltf_time, str):
+                        try:
+                            last_ltf_time_obj = datetime.fromisoformat(last_ltf_time.replace('Z', '+00:00'))
+                        except:
+                            last_ltf_time_obj = datetime.now()
+                    else:
+                        last_ltf_time_obj = last_ltf_time
+                        
+                    time_diff_ltf = (tick_time_obj - last_ltf_time_obj).total_seconds()
+                    
+                    if time_diff_ltf < 300: # Within 5 minutes
+                        last_ltf['close'] = tick_price
+                        last_ltf['high'] = max(last_ltf['high'], tick_price)
+                        last_ltf['low'] = min(last_ltf['low'], tick_price)
+                    else:
+                        new_candle = {
+                            'timestamp': tick_time_obj.isoformat(),
+                            'open': tick_price, 'high': tick_price, 'low': tick_price, 'close': tick_price, 'volume': 0
+                        }
+                        df_ltf.append(new_candle)
+                        if len(df_ltf) > 1000: df_ltf.pop(0)
 
-        # --- Update HTF (1h) ---
-        if df_htf:
-            last_htf = df_htf[-1]
-            last_htf_time = last_htf['timestamp']
-            if isinstance(last_htf_time, str):
-                try:
-                    last_htf_time_obj = datetime.fromisoformat(last_htf_time.replace('Z', '+00:00'))
-                except:
-                    last_htf_time_obj = datetime.now()
-            else:
-                last_htf_time_obj = last_htf_time
+                # --- Update HTF (1h) ---
+                if df_htf:
+                    last_htf = df_htf[-1]
+                    last_htf_time = last_htf['timestamp']
+                    if isinstance(last_htf_time, str):
+                        try:
+                            last_htf_time_obj = datetime.fromisoformat(last_htf_time.replace('Z', '+00:00'))
+                        except:
+                            last_htf_time_obj = datetime.now()
+                    else:
+                        last_htf_time_obj = last_htf_time
+                        
+                    time_diff_htf = (tick_time_obj - last_htf_time_obj).total_seconds()
+                    
+                    if time_diff_htf < 3600: # Within 1 hour
+                        last_htf['close'] = tick_price
+                        last_htf['high'] = max(last_htf['high'], tick_price)
+                        last_htf['low'] = min(last_htf['low'], tick_price)
+                    else:
+                        new_htf_candle = {
+                            'timestamp': tick_time_obj.isoformat(),
+                            'open': tick_price, 'high': tick_price, 'low': tick_price, 'close': tick_price, 'volume': 0
+                        }
+                        df_htf.append(new_htf_candle)
+                        if len(df_htf) > 1000: df_htf.pop(0)
                 
-            time_diff_htf = (tick_time_obj - last_htf_time_obj).total_seconds()
+            # Run SMC Engine on LTF
+            engine_ltf = SMCEngine(df_ltf)
+            events = engine_ltf.detect_bos_choch()
+            fvgs = engine_ltf.detect_fvg()
+            obs = engine_ltf.detect_order_blocks(events)
+            sweeps = engine_ltf.detect_liquidity_sweeps()
             
-            if time_diff_htf < 3600: # Within 1 hour
-                last_htf['close'] = tick_price
-                last_htf['high'] = max(last_htf['high'], tick_price)
-                last_htf['low'] = min(last_htf['low'], tick_price)
-            else:
-                new_htf_candle = {
-                    'timestamp': tick_time_obj.isoformat(),
-                    'open': tick_price, 'high': tick_price, 'low': tick_price, 'close': tick_price, 'volume': 0
-                }
-                df_htf.append(new_htf_candle)
-                if len(df_htf) > 1000: df_htf.pop(0)
+            # Run SMC Engine on HTF to get trend
+            engine_htf = SMCEngine(df_htf)
+            htf_events = engine_htf.detect_bos_choch()
+            
+            htf_trend = None
+            if htf_events:
+                last_htf_event = htf_events[-1]
+                if "BULLISH" in last_htf_event['type']:
+                    htf_trend = "BULLISH"
+                elif "BEARISH" in last_htf_event['type']:
+                    htf_trend = "BEARISH"
+            
+            # Check for Signals ONLY if we don't already have an active/pending trade for this symbol
+            signal = None
+            if not trade_manager.has_active_trade(symbol):
+                # Now evaluate_confluence is async (calls Gemini LLM)
+                signal = await signal_generator.evaluate_confluence(
+                    symbol=symbol,
+                    current_price=tick['price'],
+                    events=events,
+                    obs=obs,
+                    fvgs=fvgs,
+                    sweeps=sweeps,
+                    htf_trend=htf_trend
+                )
+            
+        # Outside the lock - Broadcast to clients
+        payload = {
+            "type": "TICK",
+            "data": tick
+        }
         
-    # Run SMC Engine on LTF
-    engine_ltf = SMCEngine(df_ltf)
-    events = engine_ltf.detect_bos_choch()
-    fvgs = engine_ltf.detect_fvg()
-    obs = engine_ltf.detect_order_blocks(events)
-    sweeps = engine_ltf.detect_liquidity_sweeps()
-    
-    # Run SMC Engine on HTF to get trend
-    engine_htf = SMCEngine(df_htf)
-    htf_events = engine_htf.detect_bos_choch()
-    
-    htf_trend = None
-    if htf_events:
-        last_htf_event = htf_events[-1]
-        if "BULLISH" in last_htf_event['type']:
-            htf_trend = "BULLISH"
-        elif "BEARISH" in last_htf_event['type']:
-            htf_trend = "BEARISH"
-    
-    # Check for Signals ONLY if we don't already have an active/pending trade for this symbol
-    signal = None
-    if not trade_manager.has_active_trade(symbol):
-        signal = signal_generator.evaluate_confluence(
-            symbol=symbol,
-            current_price=tick['price'],
-            events=events,
-            obs=obs,
-            fvgs=fvgs,
-            sweeps=sweeps,
-            htf_trend=htf_trend
-        )
-    
-    # Broadcast to clients
-    payload = {
-        "type": "TICK",
-        "data": tick
-    }
-    
-    if signal:
-        payload["signal"] = signal
-        result = db.save_signal(signal)
-        if result and "id" in result:
-            signal["id"] = result["id"]
-        trade_manager.add_trade(signal)
+        if signal:
+            payload["signal"] = signal
+            result = db.save_signal(signal)
+            if result and "id" in result:
+                signal["id"] = result["id"]
+            trade_manager.add_trade(signal)
+            
+            # Send Discord notification (runs asynchronously in background)
+            await send_discord_alert(signal)
+            
+        trade_manager.process_tick(tick)
+            
+        await manager.broadcast(json.dumps(payload))
         
-        # Send Discord notification (runs asynchronously in background)
-        await send_discord_alert(signal)
-        
-    trade_manager.process_tick(tick)
-        
-    await manager.broadcast(json.dumps(payload))
+    except Exception as e:
+        print(f"[{tick.get('symbol', 'UNKNOWN')}] SMC Engine Error: {e}")
+        traceback.print_exc()
 
 @app.on_event("startup")
 async def startup_event():
@@ -287,6 +298,63 @@ async def update_settings(settings: SettingsModel):
     }
     settings_manager.save_settings(new_settings)
     return {"status": "success", "settings": new_settings}
+
+# --- CUSTOM SIGNAL API ---
+
+class CustomSignalModel(BaseModel):
+    symbol: str
+    type: str  # "BUY LIMIT", "SELL LIMIT", "BUY", "SELL"
+    entry: float
+    sl: float
+    tp: float
+    reasons: List[str] = ["Custom API Signal"]
+
+@app.post("/api/custom-signal")
+async def receive_custom_signal(signal_data: CustomSignalModel, x_custom_signal_secret: str = Header(None)):
+    """
+    Endpoint to receive custom signals from external scripts.
+    Protected by X-Custom-Signal-Secret header.
+    """
+    secret = os.getenv("CUSTOM_SIGNAL_SECRET")
+    if not secret or x_custom_signal_secret != secret:
+        raise HTTPException(status_code=401, detail="Unauthorized Custom Signal")
+        
+    settings = settings_manager.load_settings()
+    acc_balance = float(settings.get("account_balance", 10000.0))
+    risk_pct = float(settings.get("risk_percentage", 1.0))
+    
+    from risk_calculator import calculate_pips, calculate_lot_size
+    sl_pips = calculate_pips(signal_data.symbol, signal_data.entry, signal_data.sl)
+    lot_size = calculate_lot_size(acc_balance, risk_pct, sl_pips, signal_data.symbol)
+    
+    signal = {
+        "symbol": signal_data.symbol,
+        "type": signal_data.type,
+        "timestamp": datetime.now().isoformat(),
+        "entry": signal_data.entry,
+        "sl": signal_data.sl,
+        "tp": signal_data.tp,
+        "lot_size": lot_size,
+        "reasons": signal_data.reasons,
+        "status": "PENDING"
+    }
+    
+    result = db.save_signal(signal)
+    if result and "id" in result:
+        signal["id"] = result["id"]
+        
+    trade_manager.add_trade(signal)
+    
+    # Broadcast to websocket
+    payload = {
+        "type": "NEW_CUSTOM_SIGNAL",
+        "signal": signal
+    }
+    await manager.broadcast(json.dumps(payload))
+    await send_discord_alert(signal)
+    
+    return {"status": "success", "message": "Custom signal processed and added", "signal": signal}
+
 
 if __name__ == "__main__":
     import uvicorn
