@@ -45,10 +45,10 @@ class SignalGenerator:
         last_event = events[-1]
         is_bullish = "BULLISH" in last_event['type']
         
-        # Strict HTF Alignment Check
-        if htf_trend:
-            if (is_bullish and htf_trend != "BULLISH") or (not is_bullish and htf_trend != "BEARISH"):
-                return None
+        # Strict HTF Alignment Check (Disabled for more frequent signals)
+        # if htf_trend:
+        #     if (is_bullish and htf_trend != "BULLISH") or (not is_bullish and htf_trend != "BEARISH"):
+        #         return None
         
         # Check Confluence Criteria
         confluence_score = 0
@@ -149,7 +149,7 @@ class SignalGenerator:
                             sl_target = snd['top'] + 0.5
                         break
 
-        if confluence_score >= 2 and entry_target and sl_target:
+        if confluence_score >= 1 and entry_target and sl_target:
             signal_type = "BUY LIMIT" if is_bullish else "SELL LIMIT"
             
             risk = abs(entry_target - sl_target)
