@@ -149,6 +149,31 @@ class SignalGenerator:
                             sl_target = snd['top'] + 0.5
                         break
 
+        # Criterion 6: Break and Retest (BnR)
+        if len(events) > 0:
+            # Look at the most recent structural breaks
+            for event in reversed(events[-3:]):
+                if is_bullish and "BULLISH" in event['type']:
+                    # Broken resistance becomes support
+                    broken_level = event['level']
+                    if abs(current_price - broken_level) / current_price < 0.0015:
+                        confluence_score += 1
+                        reasons.append(f"Bullish Break & Retest ({event['type']})")
+                        if not entry_target:
+                            entry_target = broken_level
+                            sl_target = entry_target - 1.0
+                        break
+                elif not is_bullish and "BEARISH" in event['type']:
+                    # Broken support becomes resistance
+                    broken_level = event['level']
+                    if abs(current_price - broken_level) / current_price < 0.0015:
+                        confluence_score += 1
+                        reasons.append(f"Bearish Break & Retest ({event['type']})")
+                        if not entry_target:
+                            entry_target = broken_level
+                            sl_target = entry_target + 1.0
+                        break
+
         if confluence_score >= 1 and entry_target and sl_target:
             signal_type = "BUY LIMIT" if is_bullish else "SELL LIMIT"
             
