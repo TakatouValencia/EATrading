@@ -26,7 +26,8 @@ class SignalGenerator:
             self.client = None
 
     async def evaluate_confluence(self, symbol: str, current_price: float, 
-                            events: List[Dict], obs: List[Dict], fvgs: List[Dict], sweeps: List[Dict] = None, htf_trend: str = None) -> Optional[Dict]:
+                            events: List[Dict], obs: List[Dict], fvgs: List[Dict], sweeps: List[Dict] = None, htf_trend: str = None,
+                            snr_zones: List[Dict] = None, snd_zones: List[Dict] = None) -> Optional[Dict]:
         """
         Evaluate if a new signal should be generated based on SMC confluence and LLM approval.
         """
@@ -107,6 +108,46 @@ class SignalGenerator:
                     confluence_score += 1
                     reasons.append("Bearish Liquidity Sweep")
                     break
+
+        # Criterion 4: Support / Resistance (SnR)
+        if snr_zones:
+            for snr in snr_zones:
+                if is_bullish and snr['type'] == "SUPPORT":
+                    if abs(current_price - snr['level']) / current_price < 0.002: # Near support
+                        confluence_score += 1
+                        reasons.append(f"{snr['strength']} Support Touch")
+                        if not entry_target:
+                            entry_target = snr['level']
+                            sl_target = entry_target - 1.0
+                        break
+                elif not is_bullish and snr['type'] == "RESISTANCE":
+                    if abs(current_price - snr['level']) / current_price < 0.002:
+                        confluence_score += 1
+                        reasons.append(f"{snr['strength']} Resistance Touch")
+                        if not entry_target:
+                            entry_target = snr['level']
+                            sl_target = entry_target + 1.0
+                        break
+
+        # Criterion 5: Supply / Demand (SnD)
+        if snd_zones:
+            for snd in snd_zones:
+                if is_bullish and snd['type'] == "DEMAND":
+                    if snd['bottom'] <= current_price <= snd['top'] * 1.001:
+                        confluence_score += 1
+                        reasons.append("Fresh Demand Zone")
+                        if not entry_target:
+                            entry_target = snd['top']
+                            sl_target = snd['bottom'] - 0.5
+                        break
+                elif not is_bullish and snd['type'] == "SUPPLY":
+                    if snd['bottom'] * 0.999 <= current_price <= snd['top']:
+                        confluence_score += 1
+                        reasons.append("Fresh Supply Zone")
+                        if not entry_target:
+                            entry_target = snd['bottom']
+                            sl_target = snd['top'] + 0.5
+                        break
 
         if confluence_score >= 2 and entry_target and sl_target:
             signal_type = "BUY LIMIT" if is_bullish else "SELL LIMIT"

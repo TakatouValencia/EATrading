@@ -167,6 +167,8 @@ async def run_smc_analysis(tick: dict):
             fvgs = engine_ltf.detect_fvg()
             obs = engine_ltf.detect_order_blocks(events)
             sweeps = engine_ltf.detect_liquidity_sweeps()
+            snr_zones = engine_ltf.detect_support_resistance()
+            snd_zones = engine_ltf.detect_supply_demand()
             
             # Run SMC Engine on HTF to get trend
             engine_htf = SMCEngine(df_htf)
@@ -191,7 +193,9 @@ async def run_smc_analysis(tick: dict):
                     obs=obs,
                     fvgs=fvgs,
                     sweeps=sweeps,
-                    htf_trend=htf_trend
+                    htf_trend=htf_trend,
+                    snr_zones=snr_zones,
+                    snd_zones=snd_zones
                 )
             
         # Outside the lock - Broadcast to clients

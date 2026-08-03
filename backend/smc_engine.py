@@ -247,3 +247,123 @@ class SMCEngine:
                 last_swing_low_idx = None
                 
         return sweeps
+
+    def detect_support_resistance(self, threshold_pct: float = 0.001) -> List[Dict]:
+        """
+        Detect Support and Resistance zones based on multiple touches of swing highs/lows.
+        threshold_pct: max percentage difference between swing points to group them into the same zone.
+        """
+        snr_zones = []
+        
+        # Group swing highs (Resistance)
+        highs = [row['high'] for row in self.data if row['swing_high']]
+        lows = [row['low'] for row in self.data if row['swing_low']]
+        
+        # Simple clustering for Resistance
+        visited_highs = set()
+        for i, h1 in enumerate(highs):
+            if i in visited_highs: continue
+            cluster = [h1]
+            visited_highs.add(i)
+            for j, h2 in enumerate(highs):
+                if j in visited_highs: continue
+                if abs(h1 - h2) / h1 <= threshold_pct:
+                    cluster.append(h2)
+                    visited_highs.add(j)
+            
+            if len(cluster) >= 2:
+                snr_zones.append({
+                    "type": "RESISTANCE",
+                    "level": sum(cluster) / len(cluster), # Average level
+                    "touches": len(cluster),
+                    "strength": "STRONG" if len(cluster) >= 3 else "MEDIUM"
+                })
+                
+        # Simple clustering for Support
+        visited_lows = set()
+        for i, l1 in enumerate(lows):
+            if i in visited_lows: continue
+            cluster = [l1]
+            visited_lows.add(i)
+            for j, l2 in enumerate(lows):
+                if j in visited_lows: continue
+                if abs(l1 - l2) / l1 <= threshold_pct:
+                    cluster.append(l2)
+                    visited_lows.add(j)
+                    
+            if len(cluster) >= 2:
+                snr_zones.append({
+                    "type": "SUPPORT",
+                    "level": sum(cluster) / len(cluster),
+                    "touches": len(cluster),
+                    "strength": "STRONG" if len(cluster) >= 3 else "MEDIUM"
+                })
+                
+        return snr_zones
+
+    def detect_supply_demand(self) -> List[Dict]:
+        """
+        Detect Supply and Demand zones based on Rally-Base-Drop, Drop-Base-Rally, etc.
+        """
+        snd_zones = []
+        
+        for i in range(2, len(self.data) - 1):
+            c1 = self.data[i-2]
+            c2 = self.data[i-1] # Base candle
+            c3 = self.data[i]   # Momentum candle
+            
+            # Helper to determine candle body size and direction
+            def get_body(c): return abs(c['close'] - c['open'])
+            def is_bullish(c): return c['close'] > c['open']
+            def is_bearish(c): return c['close'] < c['open']
+            
+            # Calculate average body over the last 10 candles
+            avg_body = 0
+            count = 0
+            for j in range(max(0, i-10), i):
+                avg_body += get_body(self.data[j])
+                count += 1
+            if count > 0:
+                avg_body /= count
+            else:
+                avg_body = get_body(c2)
+            
+            # Base candle shouldn't be zero to avoid div by zero issues, but it can be small
+            if avg_body == 0:
+                avg_body = 0.0001
+                
+            # Supply: Small base followed by a strong bearish candle
+            if get_body(c2) < avg_body * 0.8 and get_body(c3) > avg_body * 1.5 and is_bearish(c3):
+                snd_zones.append({
+                    "type": "SUPPLY",
+                    "top": c2['high'],
+                    "bottom": c2['low'],
+                    "timestamp": c2['timestamp'],
+                    "index": i-1,
+                    "mitigated": False
+                })
+                
+            # Demand: Small base followed by a strong bullish candle
+            elif get_body(c2) < avg_body * 0.8 and get_body(c3) > avg_body * 1.5 and is_bullish(c3):
+                snd_zones.append({
+                    "type": "DEMAND",
+                    "top": c2['high'],
+                    "bottom": c2['low'],
+                    "timestamp": c2['timestamp'],
+                    "index": i-1,
+                    "mitigated": False
+                })
+                
+        # Mitigation check
+        for zone in snd_zones:
+            idx = zone['index']
+            for j in range(idx + 1, len(self.data)):
+                if zone['type'] == 'DEMAND' and self.data[j]['low'] < zone['top']:
+                    zone['mitigated'] = True
+                    break
+                elif zone['type'] == 'SUPPLY' and self.data[j]['high'] > zone['bottom']:
+                    zone['mitigated'] = True
+                    break
+                    
+        # Return only unmitigated zones
+        return [z for z in snd_zones if not z['mitigated']]
