@@ -28,7 +28,7 @@ class ErrorBoundary extends React.Component<any, { hasError: boolean, errorMsg: 
   render() {
     if (this.state.hasError) {
       return (
-        <div className="w-full h-[550px] flex items-center justify-center bg-black/40 backdrop-blur-3xl rounded-[32px] border border-rose-500/20">
+        <div className="w-full h-[400px] lg:h-[550px] flex items-center justify-center bg-black/40 backdrop-blur-3xl rounded-[32px] border border-rose-500/20">
           <p className="text-rose-400 font-medium">Grafik Crash: {this.state.errorMsg}</p>
         </div>
       );
@@ -54,7 +54,8 @@ function TradingChartInner({ symbol }: ChartProps) {
         setError(null);
         const encodedSymbol = encodeURIComponent(symbol.replace("/", "")); // Twelvedata often uses XAU/USD in backend but REST might want XAU/USD directly
         // The backend expects "XAU/USD" literally.
-        const res = await fetch(`http://localhost:8000/api/historical/${encodeURIComponent(symbol)}`);
+        const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+        const res = await fetch(`${API_URL}/api/historical/${encodeURIComponent(symbol)}`);
         const json = await res.json();
         
         if (json.data && json.data.length > 0 && isMounted) {
@@ -71,7 +72,8 @@ function TradingChartInner({ symbol }: ChartProps) {
         if (isMounted) setLoading(false);
 
         // Connect WS
-        ws = new WebSocket("ws://localhost:8000/ws");
+        const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000";
+        ws = new WebSocket(`${WS_URL}/ws`);
         ws.onmessage = (event) => {
           try {
             const payload = JSON.parse(event.data);
@@ -147,27 +149,27 @@ function TradingChartInner({ symbol }: ChartProps) {
   };
 
   return (
-    <div className="relative w-full h-[550px] flex flex-col bg-black/40 backdrop-blur-3xl rounded-[32px] border border-white/5 overflow-hidden shadow-2xl group">
+    <div className="relative w-full h-full min-h-[400px] lg:h-[550px] flex flex-col bg-black/40 backdrop-blur-3xl rounded-[32px] border border-white/5 overflow-hidden shadow-2xl group">
       
       {/* Floating Header */}
-      <div className="absolute top-6 left-6 right-6 z-10 flex justify-between items-center pointer-events-none">
-        <div className="flex items-center space-x-5 pointer-events-auto bg-black/60 backdrop-blur-xl px-5 py-3 rounded-2xl border border-white/10 shadow-lg">
+      <div className="absolute top-4 lg:top-6 left-4 right-4 lg:left-6 lg:right-6 z-10 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pointer-events-none">
+        <div className="flex items-center space-x-3 lg:space-x-5 pointer-events-auto bg-black/60 backdrop-blur-xl px-4 lg:px-5 py-2 lg:py-3 rounded-xl lg:rounded-2xl border border-white/10 shadow-lg">
           <div>
-             <h2 className="text-3xl font-black text-white tracking-tighter font-display drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]">{symbol}</h2>
+             <h2 className="text-xl lg:text-3xl font-black text-white tracking-tighter font-display drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]">{symbol}</h2>
           </div>
-          <div className="h-8 w-px bg-white/10"></div>
+          <div className="h-6 lg:h-8 w-px bg-white/10"></div>
           <div className="flex flex-col">
-            <span className="text-[10px] text-gray-400 font-bold uppercase tracking-[0.2em]">Realtime</span>
-            <span className="text-sm font-medium text-emerald-400">Smart Money Concept</span>
+            <span className="text-[8px] lg:text-[10px] text-gray-400 font-bold uppercase tracking-[0.2em]">Realtime</span>
+            <span className="text-xs lg:text-sm font-medium text-emerald-400">SMC</span>
           </div>
         </div>
         
-        <div className="flex items-center space-x-3 pointer-events-auto bg-emerald-500/10 backdrop-blur-xl px-5 py-3 rounded-2xl border border-emerald-500/20 shadow-[0_0_30px_rgba(16,185,129,0.15)]">
-          <div className="relative flex h-3 w-3">
+        <div className="flex items-center space-x-2 lg:space-x-3 pointer-events-auto bg-emerald-500/10 backdrop-blur-xl px-3 lg:px-5 py-2 lg:py-3 rounded-xl lg:rounded-2xl border border-emerald-500/20 shadow-[0_0_30px_rgba(16,185,129,0.15)]">
+          <div className="relative flex h-2 w-2 lg:h-3 lg:w-3">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 lg:h-3 lg:w-3 bg-emerald-500"></span>
           </div>
-          <span className="text-emerald-400 font-mono text-sm tracking-widest font-bold">CONNECTED</span>
+          <span className="text-emerald-400 font-mono text-xs lg:text-sm tracking-widest font-bold">CONNECTED</span>
         </div>
       </div>
 
@@ -180,7 +182,7 @@ function TradingChartInner({ symbol }: ChartProps) {
           <p className="text-rose-400 font-medium bg-rose-500/10 px-6 py-3 rounded-xl border border-rose-500/20">{error}</p>
         </div>
       ) : (
-        <div className="w-full flex-grow mt-28 px-4 pb-6 pointer-events-auto z-10 relative">
+        <div className="w-full flex-grow mt-28 lg:mt-32 px-2 lg:px-4 pb-4 lg:pb-6 pointer-events-auto z-10 relative">
           <Chart options={options} series={series} type="candlestick" height="100%" />
         </div>
       )}

@@ -15,6 +15,9 @@ interface SignalData {
   reasons: string[];
 }
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000";
+
 export default function Home() {
   const [activeSymbol, setActiveSymbol] = useState("XAU/USD");
   const [signals, setSignals] = useState<SignalData[]>([]);
@@ -26,7 +29,7 @@ export default function Home() {
   const saveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await fetch("http://localhost:8000/api/settings", {
+      await fetch(`${API_URL}/api/settings`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(settings)
@@ -38,17 +41,17 @@ export default function Home() {
   };
 
   useEffect(() => {
-    fetch("http://localhost:8000/api/settings")
+    fetch(`${API_URL}/api/settings`)
       .then(res => res.json())
       .then(data => setSettings(data))
       .catch(console.error);
 
-    fetch("http://localhost:8000/api/stats")
+    fetch(`${API_URL}/api/stats`)
       .then(res => res.json())
       .then(data => setStats(data))
       .catch(console.error);
 
-    const ws = new WebSocket("ws://localhost:8000/ws");
+    const ws = new WebSocket(`${WS_URL}/ws`);
     
     ws.onmessage = (event) => {
       try {
@@ -154,10 +157,10 @@ export default function Home() {
         </div>
       )}
 
-      <div className="relative z-10 w-full h-screen max-w-[1920px] mx-auto p-4 md:p-6 lg:p-8 flex gap-6 md:gap-8">
+      <div className="relative z-10 w-full min-h-screen lg:h-screen max-w-[1920px] mx-auto p-4 md:p-6 lg:p-8 flex flex-col lg:flex-row gap-6 md:gap-8 overflow-y-auto lg:overflow-hidden">
         
         {/* Floating Left Sidebar */}
-        <aside className="w-20 bg-white/[0.02] backdrop-blur-3xl border border-white/5 rounded-[32px] shadow-2xl flex-col items-center py-8 hidden md:flex h-full">
+        <aside className="w-20 bg-white/[0.02] backdrop-blur-3xl border border-white/5 rounded-[32px] shadow-2xl flex-col items-center py-8 hidden lg:flex h-full shrink-0">
           <div className="relative group cursor-pointer mb-12">
             <div className="absolute inset-0 bg-emerald-500 blur-xl opacity-40 group-hover:opacity-80 transition-opacity duration-500 rounded-full"></div>
             <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center relative z-10 shadow-lg shadow-emerald-500/20">
@@ -178,21 +181,21 @@ export default function Home() {
         </aside>
 
         {/* Main Center Content */}
-        <main className="flex-1 flex flex-col h-full overflow-hidden gap-6">
+        <main className="flex-1 flex flex-col lg:h-full lg:overflow-hidden gap-6">
           
           {/* Header */}
-          <header className="flex justify-between items-end pb-2">
+          <header className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 pb-2 shrink-0">
             <div>
-              <h1 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-white/50 tracking-tight font-display drop-shadow-sm">Novaire Quant</h1>
-              <p className="text-emerald-400/80 text-sm font-medium tracking-widest uppercase mt-2">Institutional SMC Engine</p>
+              <h1 className="text-3xl md:text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-white/50 tracking-tight font-display drop-shadow-sm">Novaire Quant</h1>
+              <p className="text-emerald-400/80 text-xs md:text-sm font-medium tracking-widest uppercase mt-1 md:mt-2">Institutional SMC Engine</p>
             </div>
             
-            <div className="hidden md:flex space-x-3">
-              {['XAU/USD', 'EUR/USD', 'BTC/USD'].map((pair) => (
+            <div className="flex space-x-2 md:space-x-3 overflow-x-auto w-full sm:w-auto pb-2 sm:pb-0 scrollbar-hide">
+              {['XAU/USD'].map((pair) => (
                 <button 
                   key={pair} 
                   onClick={() => setActiveSymbol(pair)}
-                  className={`px-5 py-2.5 rounded-2xl text-sm font-bold tracking-wide transition-all duration-300 ${activeSymbol === pair ? 'bg-white/10 text-white shadow-[0_0_20px_rgba(255,255,255,0.05)] border border-white/20' : 'bg-transparent text-gray-500 hover:text-white hover:bg-white/5 border border-transparent'}`}>
+                  className={`flex-shrink-0 px-4 md:px-5 py-2 md:py-2.5 rounded-xl md:rounded-2xl text-xs md:text-sm font-bold tracking-wide transition-all duration-300 ${activeSymbol === pair ? 'bg-white/10 text-white shadow-[0_0_20px_rgba(255,255,255,0.05)] border border-white/20' : 'bg-transparent text-gray-500 hover:text-white hover:bg-white/5 border border-transparent'}`}>
                   {pair}
                 </button>
               ))}
@@ -200,12 +203,12 @@ export default function Home() {
           </header>
 
           {/* Chart Area */}
-          <div className="w-full flex-grow">
+          <div className="w-full flex-grow min-h-[400px] lg:min-h-0 shrink-0 lg:shrink">
             <TradingChart symbol={activeSymbol} />
           </div>
           
           {/* Bottom Stats Floating Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 h-36">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 lg:gap-6 shrink-0 lg:h-36">
             <StatsCard title="Monthly Winrate" value={`${stats.win_rate}%`} trend={`${stats.total_trades} trades`} highlight="emerald" />
             <StatsCard title="Active Protocols" value="3" highlight="blue" />
             <StatsCard title="Engine Status" value="Online" icon={<Activity className="text-emerald-400 animate-pulse" />} highlight="emerald" />
@@ -213,7 +216,7 @@ export default function Home() {
         </main>
 
         {/* Floating Right Sidebar (Signal Queue) */}
-        <aside className="w-full md:w-80 lg:w-[400px] bg-white/[0.02] backdrop-blur-3xl border border-white/5 rounded-[32px] flex flex-col h-full shadow-2xl relative overflow-hidden">
+        <aside className="w-full lg:w-[400px] bg-white/[0.02] backdrop-blur-3xl border border-white/5 rounded-[32px] flex flex-col min-h-[500px] lg:h-full shadow-2xl relative overflow-hidden shrink-0 lg:shrink">
           {/* subtle glow for sidebar */}
           <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 rounded-full blur-[80px] pointer-events-none"></div>
           

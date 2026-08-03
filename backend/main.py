@@ -225,7 +225,7 @@ async def run_smc_analysis(tick: dict):
 @app.on_event("startup")
 async def startup_event():
     # Start DataProvider in background
-    symbols = ["XAU/USD", "EUR/USD", "GBP/USD", "BTC/USD"]
+    symbols = ["XAU/USD"]
     data_provider.add_callback(run_smc_analysis)
     
     # Start websocket connection to TwelveData asynchronously
