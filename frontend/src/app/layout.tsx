@@ -21,7 +21,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Novaire Analytics | SMC Engine",
+  title: "Novaire EA | SMC Engine",
   description: "Advanced Smart Money Concept (SMC) Trading Analysis Engine",
 };
 

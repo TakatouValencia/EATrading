@@ -186,7 +186,7 @@ export default function Home() {
           {/* Header */}
           <header className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 pb-2 shrink-0">
             <div>
-              <h1 className="text-3xl md:text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-white/50 tracking-tight font-display drop-shadow-sm">Novaire Quant</h1>
+              <h1 className="text-3xl md:text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-white/50 tracking-tight font-display drop-shadow-sm">Novaire EA</h1>
               <p className="text-emerald-400/80 text-xs md:text-sm font-medium tracking-widest uppercase mt-1 md:mt-2">Institutional SMC Engine</p>
             </div>
             

@@ -19,7 +19,7 @@ from trade_manager import TradeManager
 import settings_manager
 from discord_notifier import send_discord_alert, send_discord_trade_update
 
-app = FastAPI(title="Novaire Academy SMC Engine")
+app = FastAPI(title="Novaire EA SMC Engine")
 
 # CORS for frontend
 app.add_middleware(

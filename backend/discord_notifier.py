@@ -27,7 +27,7 @@ async def send_discord_alert(signal: dict):
             {"name": "Stop Loss (SL)", "value": f"**{signal.get('sl')}**", "inline": True},
         ],
         "footer": {
-            "text": "Novaire Quant SMC Engine"
+            "text": "Novaire EA SMC Engine"
         },
         "timestamp": datetime.utcnow().isoformat()
     }
@@ -37,7 +37,7 @@ async def send_discord_alert(signal: dict):
         embed["fields"].append({"name": "Confluence Reasons", "value": reasons_text, "inline": False})
         
     payload = {
-        "username": "Novaire Quant",
+        "username": "Novaire EA",
         "embeds": [embed]
     }
     
@@ -65,7 +65,7 @@ async def send_discord_trade_update(signal: dict, new_status: str, pnl: float):
     }
     
     payload = {
-        "username": "Novaire Quant",
+        "username": "Novaire EA",
         "embeds": [embed]
     }
     
