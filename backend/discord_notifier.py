@@ -38,6 +38,7 @@ async def send_discord_alert(signal: dict):
         
     payload = {
         "username": "Novaire EA",
+        "content": "🔔 @everyone Sinyal Baru Terdeteksi!",
         "embeds": [embed]
     }
     
@@ -66,6 +67,7 @@ async def send_discord_trade_update(signal: dict, new_status: str, pnl: float):
     
     payload = {
         "username": "Novaire EA",
+        "content": "🔔 @everyone Update Trade!",
         "embeds": [embed]
     }
     
