@@ -239,7 +239,7 @@ export default function Home() {
               <h3 className="font-display font-bold text-2xl text-white tracking-wide">
                 Signal
               </h3>
-              <p className="text-gray-400 text-xs mt-1">Signal XAUUSD terbaru dari Maverick</p>
+              <p className="text-gray-400 text-xs mt-1">Signal XAUUSD terbaru dari Novaire EA</p>
             </div>
             <div className="flex items-center space-x-1 bg-[#1a1a1e] px-3 py-1.5 rounded-full border border-white/5">
               <Bell size={14} className="text-yellow-500 fill-yellow-500" />
