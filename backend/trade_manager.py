@@ -11,10 +11,12 @@ class TradeManager:
     def _load_tracked_trades(self):
         recent_signals = self.db.get_historical_signals(limit=50)
         self.tracked_trades = [s for s in recent_signals if s['status'] in ('PENDING', 'ACTIVE')]
+        print(f"[DEBUG] Loaded tracked trades: {len(self.tracked_trades)}")
 
     def add_trade(self, signal: Dict):
-        # Reload to make sure we have the DB ID
-        self._load_tracked_trades()
+        # Instead of reloading from DB, append directly to prevent state wipe on DB lock
+        if signal not in self.tracked_trades:
+            self.tracked_trades.append(signal)
 
     def has_active_trade(self, symbol: str) -> bool:
         """Check if there is an ongoing PENDING or ACTIVE trade for the symbol."""
@@ -22,7 +24,7 @@ class TradeManager:
             if trade['symbol'] == symbol and trade['status'] in ('PENDING', 'ACTIVE'):
                 return True
         return False
-    def process_tick(self, tick: Dict):
+    async def process_tick(self, tick: Dict):
         """Evaluate tracked trades against current market price."""
         symbol = tick['symbol']
         price = tick['price']
@@ -40,6 +42,32 @@ class TradeManager:
             trade_id = trade.get('id')
             
             if status == 'PENDING':
+                # Check for expiration (cancel if pending for > 4 hours)
+                try:
+                    from datetime import datetime, timedelta
+                    ts = trade.get('timestamp', '')
+                    if ts:
+                        # Handle ISO formats
+                        ts_obj = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                        # Use naive datetime for comparison if ts_obj is naive, else aware
+                        now = datetime.now(ts_obj.tzinfo)
+                        if now - ts_obj > timedelta(hours=4):
+                            trade['status'] = 'CANCELLED'
+                            if trade_id:
+                                self.db.update_signal_status(trade_id, 'CANCELLED')
+                            self.tracked_trades.remove(trade)
+                            
+                            # Notify frontend
+                            if self.on_trade_closed:
+                                import asyncio
+                                if asyncio.iscoroutinefunction(self.on_trade_closed):
+                                    await self.on_trade_closed(trade, 'CANCELLED', 0)
+                                else:
+                                    self.on_trade_closed(trade, 'CANCELLED', 0)
+                            continue
+                except Exception as e:
+                    print(f"Error checking expiration: {e}")
+
                 # Check for entry trigger
                 triggered = False
                 if is_buy and price <= entry:
@@ -84,6 +112,6 @@ class TradeManager:
                     if self.on_trade_closed:
                         import asyncio
                         if asyncio.iscoroutinefunction(self.on_trade_closed):
-                            asyncio.create_task(self.on_trade_closed(trade, new_status, pnl))
+                            await self.on_trade_closed(trade, new_status, pnl)
                         else:
                             self.on_trade_closed(trade, new_status, pnl)

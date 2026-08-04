@@ -214,7 +214,7 @@ async def run_smc_analysis(tick: dict):
             # Send Discord notification (runs asynchronously in background)
             await send_discord_alert(signal)
             
-        trade_manager.process_tick(tick)
+        await trade_manager.process_tick(tick)
             
         await manager.broadcast(json.dumps(payload))
         

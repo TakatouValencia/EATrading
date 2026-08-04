@@ -243,6 +243,13 @@ JSON Format to Return:
             
             sl_pips = calculate_pips(symbol, entry_target, sl_target)
             lot_size = calculate_lot_size(acc_balance, risk_pct, sl_pips, symbol)
+            
+            # Round prices for cleaner output
+            decimal_places = 2 if "XAU" in symbol or "JPY" in symbol else 5
+            entry_target = round(entry_target, decimal_places)
+            sl_target = round(sl_target, decimal_places)
+            tp_target = round(tp_target, decimal_places)
+            lot_size = round(lot_size, 2)
                 
             signal = {
                 "symbol": symbol,

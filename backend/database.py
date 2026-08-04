@@ -102,6 +102,10 @@ class Database:
                 for row in rows:
                     r_dict = dict(row)
                     r_dict['reasons'] = json.loads(r_dict['reasons']) if r_dict['reasons'] else []
+                    r_dict['entry'] = r_dict.pop('entry_price', 0)
+                    r_dict['sl'] = r_dict.pop('sl_price', 0)
+                    r_dict['tp'] = r_dict.pop('tp_price', 0)
+                    r_dict['timestamp'] = r_dict.pop('created_at', '')
                     results.append(r_dict)
                 return results
             except Exception as e:
@@ -110,7 +114,14 @@ class Database:
         elif self.supabase:
             try:
                 response = self.supabase.table('signals').select("*").order('created_at', desc=True).limit(limit).execute()
-                return response.data
+                results = []
+                for r_dict in response.data:
+                    r_dict['entry'] = r_dict.pop('entry_price', 0)
+                    r_dict['sl'] = r_dict.pop('sl_price', 0)
+                    r_dict['tp'] = r_dict.pop('tp_price', 0)
+                    r_dict['timestamp'] = r_dict.pop('created_at', '')
+                    results.append(r_dict)
+                return results
             except Exception as e:
                 print(f"Error fetching historical signals: {e}")
                 return []
