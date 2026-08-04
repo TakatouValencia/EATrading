@@ -237,8 +237,8 @@ JSON Format to Return:
                         print(f"[{symbol}] LLM Rejected: {llm_decision.get('reasoning')}")
                         return None
                         
-                    reasons.append(f"LLM Approved (Confidence: {llm_decision.get('confidence')}%)")
-                    reasons.append(f"LLM Reasoning: {llm_decision.get('reasoning')}")
+                    reasons.append(f"LLM Verified ({llm_decision.get('confidence')}%)")
+                    # Removed LLM Reasoning to keep the signal concise
                     
                 except Exception as e:
                     print(f"[{symbol}] LLM Evaluation Error: {e}. Proceeding without LLM.")
