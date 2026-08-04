@@ -177,18 +177,32 @@ class SignalGenerator:
         if confluence_score >= 1 and entry_target and sl_target:
             signal_type = "BUY LIMIT" if is_bullish else "SELL LIMIT"
             
-            risk = abs(entry_target - sl_target)
+            # Hitung jarak resiko (SL) berdasarkan struktur market (OB / FVG)
+            raw_risk = abs(entry_target - sl_target)
             
-            # Pastikan jarak TP tidak terlalu kecil (terutama untuk scalping di TF kecil)
-            # Untuk XAU/USD minimal resiko kita anggap 3.0 ($3 atau 30 pips) agar TP minimal $12 (120 pips)
-            min_risk = 3.0 if "XAU" in symbol else 0.003
-            effective_risk = max(risk, min_risk)
-            
-            # Gunakan rasio Risk to Reward 1:4
-            if is_bullish:
-                tp_target = entry_target + (effective_risk * 4)
+            # Widen SL ke 50-70 pips ($5 - $7 untuk XAU/USD) untuk menghindari stop hunt (fakeout)
+            if "XAU" in symbol:
+                min_risk, max_risk = 5.0, 7.0  # 50 - 70 pips
+                min_tp, max_tp = 10.0, 25.0    # 100 - 250 pips
             else:
-                tp_target = entry_target - (effective_risk * 4)
+                min_risk, max_risk = 0.005, 0.007
+                min_tp, max_tp = 0.010, 0.025
+                
+            # Terapkan SL yang dinamis tapi dibatasi dalam rentang 50-70 pips
+            effective_risk = max(min_risk, min(raw_risk, max_risk))
+            
+            # Update harga SL sesuai perhitungan risk yang baru dilebarkan
+            sl_target = (entry_target - effective_risk) if is_bullish else (entry_target + effective_risk)
+            
+            # Tentukan jarak TP (Target 100-250 pips) dengan RR kurang lebih 1:2.5 hingga 1:3.5
+            raw_tp_dist = effective_risk * 3.0
+            effective_tp_dist = max(min_tp, min(raw_tp_dist, max_tp))
+            
+            # Update harga TP
+            if is_bullish:
+                tp_target = entry_target + effective_tp_dist
+            else:
+                tp_target = entry_target - effective_tp_dist
                 
             # --- LLM APPROVAL PHASE ---
             if self.client:
