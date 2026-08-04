@@ -178,10 +178,17 @@ class SignalGenerator:
             signal_type = "BUY LIMIT" if is_bullish else "SELL LIMIT"
             
             risk = abs(entry_target - sl_target)
+            
+            # Pastikan jarak TP tidak terlalu kecil (terutama untuk scalping di TF kecil)
+            # Untuk XAU/USD minimal resiko kita anggap 3.0 ($3 atau 30 pips) agar TP minimal $12 (120 pips)
+            min_risk = 3.0 if "XAU" in symbol else 0.003
+            effective_risk = max(risk, min_risk)
+            
+            # Gunakan rasio Risk to Reward 1:4
             if is_bullish:
-                tp_target = entry_target + (risk * 3)
+                tp_target = entry_target + (effective_risk * 4)
             else:
-                tp_target = entry_target - (risk * 3)
+                tp_target = entry_target - (effective_risk * 4)
                 
             # --- LLM APPROVAL PHASE ---
             if self.client:
