@@ -27,7 +27,8 @@ class SignalGenerator:
 
     async def evaluate_confluence(self, symbol: str, current_price: float, 
                             events: List[Dict], obs: List[Dict], fvgs: List[Dict], sweeps: List[Dict] = None, htf_trend: str = None,
-                            snr_zones: List[Dict] = None, snd_zones: List[Dict] = None, pd_zones: Dict = None, breakers: List[Dict] = None) -> Optional[Dict]:
+                            snr_zones: List[Dict] = None, snd_zones: List[Dict] = None, pd_zones: Dict = None, breakers: List[Dict] = None,
+                            dxy_trend: str = None) -> Optional[Dict]:
         """
         Evaluate if a new signal should be generated based on SMC confluence and LLM approval.
         Implements High Probability Grading (Grade A/B) based on Liquidity Sweeps and Multi-Timeframe.
@@ -63,6 +64,21 @@ class SignalGenerator:
             if (is_bullish and htf_trend == "BULLISH") or (not is_bullish and htf_trend == "BEARISH"):
                 has_htf_alignment = True
                 reasons.append(f"HTF Trend Alignment ({htf_trend})")
+                
+        # Intermarket Correlation (DXY)
+        if dxy_trend and "XAU" in symbol:
+            if is_bullish and dxy_trend == "BEARISH":
+                confluence_score += 2
+                reasons.append("Strong Intermarket Correlation (DXY Down = Gold Up)")
+            elif is_bullish and dxy_trend == "BULLISH":
+                confluence_score -= 1
+                reasons.append("Weak Intermarket Correlation (DXY Up = Gold Down)")
+            elif not is_bullish and dxy_trend == "BULLISH":
+                confluence_score += 2
+                reasons.append("Strong Intermarket Correlation (DXY Up = Gold Down)")
+            elif not is_bullish and dxy_trend == "BEARISH":
+                confluence_score -= 1
+                reasons.append("Weak Intermarket Correlation (DXY Down = Gold Up)")
         
         entry_target = None
         sl_target = None

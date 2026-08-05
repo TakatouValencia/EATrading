@@ -50,6 +50,17 @@ async def main():
     print(f"Current M5 Price: {current_price}")
     
     # Evaluate confluence
+    dxy_trend = None
+    if "XAU" in symbol:
+        print("Fetching DXY data for Intermarket Correlation...")
+        df_dxy = dp.get_historical_data("DXY", interval="15min")
+        if df_dxy:
+            engine_dxy = SMCEngine(df_dxy)
+            dxy_events = engine_dxy.detect_bos_choch()
+            if dxy_events:
+                dxy_trend = "BULLISH" if "BULLISH" in dxy_events[-1]['type'] else "BEARISH"
+                print(f"DXY HTF Trend: {dxy_trend}")
+                
     signal = await sg.evaluate_confluence(
         symbol=symbol,
         current_price=current_price,
@@ -59,7 +70,8 @@ async def main():
         sweeps=sweeps,
         htf_trend=htf_trend,
         snr_zones=snr_zones,
-        snd_zones=snd_zones
+        snd_zones=snd_zones,
+        dxy_trend=dxy_trend
     )
     
     if signal:

@@ -184,6 +184,21 @@ async def run_smc_analysis(tick: dict):
                 elif "BEARISH" in last_htf_event['type']:
                     htf_trend = "BEARISH"
             
+            # Fetch DXY Trend for Intermarket Correlation if Gold
+            dxy_trend = None
+            if "XAU" in symbol:
+                if "DXY" not in app.state.market_data:
+                    df_dxy = data_provider.get_historical_data("DXY", interval="1h")
+                    if df_dxy:
+                        app.state.market_data["DXY"] = df_dxy
+                
+                if "DXY" in app.state.market_data:
+                    df_dxy = app.state.market_data["DXY"]
+                    engine_dxy = SMCEngine(df_dxy)
+                    dxy_events = engine_dxy.detect_bos_choch()
+                    if dxy_events:
+                        dxy_trend = "BULLISH" if "BULLISH" in dxy_events[-1]['type'] else "BEARISH"
+            
             # Check for Signals ONLY if we don't already have an ACTIVE (running) trade for this symbol
             # If we only have a PENDING trade, we allow the engine to find a newer/fresher setup
             # and replace the old pending one.
@@ -201,7 +216,8 @@ async def run_smc_analysis(tick: dict):
                     snr_zones=snr_zones,
                     snd_zones=snd_zones,
                     pd_zones=pd_zones,
-                    breakers=breakers
+                    breakers=breakers,
+                    dxy_trend=dxy_trend
                 )
             
         # Outside the lock - Broadcast to clients
