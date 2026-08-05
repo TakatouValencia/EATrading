@@ -24,6 +24,28 @@ class TradeManager:
             if trade['symbol'] == symbol and trade['status'] in ('PENDING', 'ACTIVE'):
                 return True
         return False
+        
+    def has_running_trade(self, symbol: str) -> bool:
+        """Check if there is an ongoing ACTIVE (already triggered) trade. Ignores PENDING."""
+        for trade in self.tracked_trades:
+            if trade['symbol'] == symbol and trade['status'] == 'ACTIVE':
+                return True
+        return False
+
+    async def cancel_pending_trades(self, symbol: str):
+        """Cancel all PENDING trades for a symbol."""
+        for trade in self.tracked_trades[:]:
+            if trade['symbol'] == symbol and trade['status'] == 'PENDING':
+                trade['status'] = 'CANCELLED'
+                if trade.get('id'):
+                    self.db.update_signal_status(trade['id'], 'CANCELLED')
+                self.tracked_trades.remove(trade)
+                if self.on_trade_closed:
+                    import asyncio
+                    if asyncio.iscoroutinefunction(self.on_trade_closed):
+                        await self.on_trade_closed(trade, 'CANCELLED', 0)
+                    else:
+                        self.on_trade_closed(trade, 'CANCELLED', 0)
     async def process_tick(self, tick: Dict):
         """Evaluate tracked trades against current market price."""
         symbol = tick['symbol']

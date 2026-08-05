@@ -184,9 +184,11 @@ async def run_smc_analysis(tick: dict):
                 elif "BEARISH" in last_htf_event['type']:
                     htf_trend = "BEARISH"
             
-            # Check for Signals ONLY if we don't already have an active/pending trade for this symbol
+            # Check for Signals ONLY if we don't already have an ACTIVE (running) trade for this symbol
+            # If we only have a PENDING trade, we allow the engine to find a newer/fresher setup
+            # and replace the old pending one.
             signal = None
-            if not trade_manager.has_active_trade(symbol):
+            if not trade_manager.has_running_trade(symbol):
                 # Now evaluate_confluence is async (calls Gemini LLM)
                 signal = await signal_generator.evaluate_confluence(
                     symbol=symbol,
@@ -210,6 +212,11 @@ async def run_smc_analysis(tick: dict):
         
         if signal:
             payload["signal"] = signal
+            
+            # Since we allow finding new setups while old ones are pending, 
+            # we must cancel the old pending setups so we don't end up with multiple limit orders.
+            await trade_manager.cancel_pending_trades(symbol)
+            
             result = db.save_signal(signal)
             if result and "id" in result:
                 signal["id"] = result["id"]
