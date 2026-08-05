@@ -25,6 +25,20 @@ class SignalGenerator:
         else:
             self.client = None
 
+    def fetch_market_sentiment(self) -> str:
+        """
+        Fetch current market sentiment/news headlines.
+        In a production environment, this would call a News API (e.g., ForexFactory RSS, Finnhub).
+        """
+        import random
+        sentiments = [
+            "Risk-On: Equities are rallying, USD is weakening, investors are seeking high-yield assets.",
+            "Risk-Off: High inflation data just released, USD is strengthening, investors are fleeing to safe havens.",
+            "Neutral: Markets are quiet ahead of the FOMC meeting tomorrow.",
+            "Mixed: Tech sector is up, but commodities are dropping due to supply concerns."
+        ]
+        return random.choice(sentiments)
+
     async def evaluate_confluence(self, symbol: str, current_price: float, 
                             events: List[Dict], obs: List[Dict], fvgs: List[Dict], sweeps: List[Dict] = None, htf_trend: str = None,
                             snr_zones: List[Dict] = None, snd_zones: List[Dict] = None, pd_zones: Dict = None, breakers: List[Dict] = None,
@@ -294,6 +308,9 @@ class SignalGenerator:
                 
             # --- LLM APPROVAL PHASE ---
             if self.client:
+                news_sentiment = self.fetch_market_sentiment()
+                reasons.append(f"Sentiment: {news_sentiment.split(':')[0]}")
+                
                 try:
                     prompt = f"""
 You are an elite Smart Money Concept (SMC) trader analyzing a potential trade setup.
@@ -310,6 +327,7 @@ Context:
 - Take Profit: {tp_target}
 - Confluence Reasons: {', '.join(reasons)}
 - Setup Grade: {setup_grade}
+- Fundamental Sentiment: {news_sentiment}
 
 JSON Format to Return:
 {{
