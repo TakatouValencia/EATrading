@@ -113,7 +113,12 @@ class DataProvider:
             import yfinance as yf
             
             # Map symbol to Yahoo Finance ticker
-            yf_ticker = "GC=F" if "XAU" in symbol else "EURUSD=X"
+            if "XAU" in symbol:
+                yf_ticker = "GC=F"
+            elif "DXY" in symbol:
+                yf_ticker = "DX-Y.NYB"
+            else:
+                yf_ticker = "EURUSD=X"
             
             # Use Ticker().history() for safer single-index columns
             ticker = yf.Ticker(yf_ticker)

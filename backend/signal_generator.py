@@ -258,8 +258,8 @@ class SignalGenerator:
                 setup_grade = "A"
                 risk_multiplier = 1.0
                 reasons.append("GRADE A: High Prob")
-            # Grade B requirement lowered to >= 3 so we get 2-3 signals a day
-            elif confluence_score >= 3: 
+            # Grade B requirement lowered to >= 2 so we get 2-3 signals a day more easily
+            elif confluence_score >= 2: 
                 setup_grade = "B"
                 risk_multiplier = 0.5
                 reasons.append("GRADE B: Standard")
