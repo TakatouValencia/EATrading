@@ -99,10 +99,61 @@ class TradeManager:
                     
                 if triggered:
                     trade['status'] = 'ACTIVE'
+                    from datetime import datetime
+                    trade['entry_timestamp'] = datetime.now().isoformat()
+                    trade['partial_taken'] = False
                     if trade_id:
                         self.db.update_signal_status(trade_id, 'ACTIVE')
                         
             elif status == 'ACTIVE':
+                # Check for Time-Based Exit (> 4 hours)
+                try:
+                    from datetime import datetime, timedelta
+                    entry_ts = trade.get('entry_timestamp')
+                    if entry_ts:
+                        entry_ts_obj = datetime.fromisoformat(entry_ts.replace('Z', '+00:00'))
+                        now = datetime.now(entry_ts_obj.tzinfo)
+                        if now - entry_ts_obj > timedelta(hours=4):
+                            print(f"[{symbol}] Time-based exit for trade. Closing at market.")
+                            won = (is_buy and price > entry) or (not is_buy and price < entry)
+                            new_status = 'WIN' if won else 'LOSS'
+                            pnl = 0.5 if won else -0.5
+                            
+                            trade['status'] = new_status
+                            if trade_id:
+                                self.db.update_signal_status(trade_id, new_status, pnl)
+                            self.tracked_trades.remove(trade)
+                            
+                            if self.on_trade_closed:
+                                import asyncio
+                                if asyncio.iscoroutinefunction(self.on_trade_closed):
+                                    await self.on_trade_closed(trade, new_status, pnl)
+                                else:
+                                    self.on_trade_closed(trade, new_status, pnl)
+                            continue
+                except Exception as e:
+                    print(f"Error checking time-based exit: {e}")
+
+                # Check for Smart Scaling Out (1R)
+                if not trade.get('partial_taken', False):
+                    one_r_dist = abs(entry - sl)
+                    reached_1r = False
+                    if is_buy and price >= (entry + one_r_dist):
+                        reached_1r = True
+                    elif not is_buy and price <= (entry - one_r_dist):
+                        reached_1r = True
+                        
+                    if reached_1r:
+                        print(f"[{symbol}] 1R Reached! Taking 50% partial profit and moving SL to Break Even.")
+                        trade['partial_taken'] = True
+                        if 'sl_price' in trade:
+                            trade['sl_price'] = entry
+                        else:
+                            trade['sl'] = entry
+
+                # Re-read SL because it might have been updated to BE
+                current_sl = float(trade.get('sl_price', trade.get('sl')))
+
                 # Check for TP / SL
                 won = False
                 lost = False
@@ -110,21 +161,22 @@ class TradeManager:
                 if is_buy:
                     if price >= tp:
                         won = True
-                    elif price <= sl:
+                    elif price <= current_sl:
                         lost = True
                 else:
                     if price <= tp:
                         won = True
-                    elif price >= sl:
+                    elif price >= current_sl:
                         lost = True
                         
                 if won or lost:
                     new_status = 'WIN' if won else 'LOSS'
                     trade['status'] = new_status
                     
-                    # Calculate simple RR PnL (assuming 1% risk and 3% RR for this MVP)
-                    # Ideally this reads from lot_size and actual pip diff
-                    pnl = 3.0 if won else -1.0 
+                    if won:
+                        pnl = 2.0 if trade.get('partial_taken') else 3.0
+                    else:
+                        pnl = 0.5 if trade.get('partial_taken') else -1.0
                     
                     if trade_id:
                         self.db.update_signal_status(trade_id, new_status, pnl)

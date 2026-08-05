@@ -52,6 +52,17 @@ class SMCEngine:
                 
             current_close = row['close']
             
+            # --- Volume Analysis ---
+            avg_vol = 0
+            count = 0
+            for j in range(max(0, i-10), i):
+                avg_vol += self.data[j].get('volume', 0)
+                count += 1
+            avg_vol = (avg_vol / count) if count > 0 else 0
+            
+            current_vol = row.get('volume', 0)
+            is_fakeout = current_vol < (avg_vol * 1.1) if avg_vol > 0 else False
+            
             # Check Bullish Break (close above last swing high)
             if last_swing_high_idx < i and current_close > self.data[last_swing_high_idx]['high']:
                 if trend == 1:
@@ -65,7 +76,8 @@ class SMCEngine:
                     "index": i,
                     "timestamp": row['timestamp'],
                     "level": self.data[last_swing_high_idx]['high'],
-                    "broken_swing_idx": last_swing_high_idx
+                    "broken_swing_idx": last_swing_high_idx,
+                    "is_fakeout": is_fakeout
                 })
                 # Reset to avoid multiple triggers for the same swing
                 last_swing_high_idx = None 
@@ -83,7 +95,8 @@ class SMCEngine:
                     "index": i,
                     "timestamp": row['timestamp'],
                     "level": self.data[last_swing_low_idx]['low'],
-                    "broken_swing_idx": last_swing_low_idx
+                    "broken_swing_idx": last_swing_low_idx,
+                    "is_fakeout": is_fakeout
                 })
                 # Reset
                 last_swing_low_idx = None

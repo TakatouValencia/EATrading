@@ -50,6 +50,14 @@ class SignalGenerator:
         confluence_score = 0
         reasons = [last_event['type']]
         
+        # Volume Analysis Validation
+        if last_event.get('is_fakeout', False):
+            confluence_score -= 2
+            reasons.append("Low Volume Breakout (Fakeout Warning)")
+        else:
+            confluence_score += 1
+            reasons.append("High Volume Breakout (Confirmed)")
+        
         has_htf_alignment = False
         if htf_trend:
             if (is_bullish and htf_trend == "BULLISH") or (not is_bullish and htf_trend == "BEARISH"):
