@@ -52,9 +52,15 @@ function TradingChartInner({ symbol }: ChartProps) {
       try {
         setLoading(true);
         setError(null);
-        const encodedSymbol = encodeURIComponent(symbol.replace("/", ""));
+        
         const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-        const res = await fetch(`${API_URL}/api/historical/${encodeURIComponent(symbol)}`);
+        // Do not encode the slash, backend uses {symbol:path} which handles raw slashes
+        const res = await fetch(`${API_URL}/api/historical/${symbol}`);
+        
+        if (!res.ok) {
+           throw new Error("Gagal mengambil data historis");
+        }
+        
         const json = await res.json();
         
         if (json.data && json.data.length > 0 && isMounted) {
@@ -96,8 +102,9 @@ function TradingChartInner({ symbol }: ChartProps) {
             }
           } catch (e) {}
         };
-      } catch (err) {
+      } catch (err: any) {
         if (isMounted) {
+          console.error(err);
           setError("Koneksi ke server tertunda.");
           setLoading(false);
         }

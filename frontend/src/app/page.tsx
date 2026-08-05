@@ -205,7 +205,7 @@ export default function Home() {
                     <rect x="4" y="17" width="16" height="2" />
                   </svg>
                 </button>
-                <div className="hidden sm:block ml-4 text-slate-100 font-semibold text-xl">Institutional SMC Engine</div>
+                <div className="hidden sm:block ml-4 text-slate-100 font-semibold text-xl">Novaire EA</div>
               </div>
               
               <div className="flex items-center space-x-3">
