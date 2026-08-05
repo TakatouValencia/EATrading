@@ -99,12 +99,12 @@ class DataProvider:
                 formatted_data.sort(key=lambda x: x['timestamp'])
                 return formatted_data
             else:
-                print(f"Error fetching historical data: {data}")
-                return []
+                print(f"Error fetching historical data (fallback to dummy): {data}")
+                return self._generate_dummy_data(symbol)
                 
         except Exception as e:
-            print(f"REST API error: {e}")
-            return []
+            print(f"REST API error (fallback to dummy): {e}")
+            return self._generate_dummy_data(symbol)
             
     def _generate_dummy_data(self, symbol: str) -> List[Dict]:
         """Generate dummy data for development without API key."""

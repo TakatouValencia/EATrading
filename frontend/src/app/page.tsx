@@ -254,7 +254,7 @@ export default function Home() {
               <header className="px-5 py-4 border-b border-slate-700">
                 <h2 className="font-semibold text-slate-100">Live Analysis: {activeSymbol}</h2>
               </header>
-              <div className="p-1 h-[500px]">
+              <div className="p-1 h-[350px] sm:h-[500px]">
                 <TradingChart symbol={activeSymbol} />
               </div>
             </div>
