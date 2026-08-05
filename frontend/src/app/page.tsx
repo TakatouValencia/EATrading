@@ -1,7 +1,7 @@
 "use client";
 
 import TradingChart from "@/components/TradingChart";
-import { Activity, Bell, Settings, Target, TrendingUp, History, Zap } from "lucide-react";
+import { Activity, Bell, Settings, Target, TrendingUp, History, Zap, Search, LayoutDashboard } from "lucide-react";
 import { useState, useEffect } from "react";
 
 interface SignalData {
@@ -13,7 +13,7 @@ interface SignalData {
   tp: number;
   lot_size?: number;
   reasons: string[];
-  status: string; // PENDING, ACTIVE, WIN, LOSS, CANCELLED
+  status: string;
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -27,6 +27,7 @@ export default function Home() {
   const [stats, setStats] = useState({ win_rate: 0, total_trades: 0 });
   const [toasts, setToasts] = useState<any[]>([]);
   const [filter, setFilter] = useState("All");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const saveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,12 +77,10 @@ export default function Home() {
             setToasts(prev => prev.filter(t => t.id !== toastId));
           }, 5000);
         } else if (payload.signal) {
-          // Add new signal to the top of the queue
           setSignals(prev => {
-            // Check if we already have this exact signal to avoid duplicates in MVP
             const exists = prev.find(s => s.symbol === payload.signal.symbol && s.timestamp === payload.signal.timestamp);
             if (exists) return prev;
-            return [payload.signal, ...prev].slice(0, 50); // Keep last 50
+            return [payload.signal, ...prev].slice(0, 50);
           });
         }
       } catch (e) {
@@ -94,15 +93,6 @@ export default function Home() {
     };
   }, []);
 
-  const getRelativeTime = (isoString: string) => {
-    if (!isoString) return "";
-    const diffInSeconds = Math.floor((new Date().getTime() - new Date(isoString).getTime()) / 1000);
-    if (diffInSeconds < 60) return `${diffInSeconds}s ago`;
-    const diffInMinutes = Math.floor(diffInSeconds / 60);
-    if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
-    return `${Math.floor(diffInMinutes / 60)}h ago`;
-  };
-
   const filteredSignals = signals.filter(sig => {
     if (filter === "All") return true;
     if (filter === "Open") return sig.status === "PENDING" || sig.status === "ACTIVE";
@@ -113,26 +103,15 @@ export default function Home() {
   });
 
   return (
-    <div className="min-h-screen bg-[#0a0a0c] text-gray-200 selection:bg-purple-500/30 font-sans relative overflow-hidden flex items-center justify-center">
+    <div className="flex h-screen overflow-hidden bg-slate-900 text-slate-200 font-sans selection:bg-indigo-500/30">
       
-      {/* Immersive Dynamic Background Mesh */}
-      <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-[20%] -left-[10%] w-[60%] h-[60%] rounded-full bg-purple-600/5 blur-[150px] mix-blend-screen animate-pulse" style={{ animationDuration: '8s' }}></div>
-        <div className="absolute -bottom-[20%] -right-[10%] w-[60%] h-[60%] rounded-full bg-indigo-600/5 blur-[150px] mix-blend-screen animate-pulse" style={{ animationDuration: '12s' }}></div>
-        {/* Noise overlay for premium texture */}
-        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.04] mix-blend-overlay"></div>
-      </div>
-
       {/* Toasts / Notifications */}
       <div className="fixed top-6 right-6 z-50 flex flex-col space-y-3 pointer-events-none">
         {toasts.map(toast => (
-          <div key={toast.id} className={`p-4 rounded-[20px] shadow-2xl border backdrop-blur-md flex items-center space-x-4 transition-all duration-500 transform translate-y-0 opacity-100 ${toast.status === 'WIN' ? 'bg-emerald-950/40 border-emerald-500/30 shadow-[0_10px_40px_-10px_rgba(16,185,129,0.3)]' : 'bg-rose-950/40 border-rose-500/30 shadow-[0_10px_40px_-10px_rgba(244,63,94,0.3)]'}`}>
-            <div className={`w-12 h-12 rounded-full flex items-center justify-center ${toast.status === 'WIN' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
-              {toast.status === 'WIN' ? <Target size={24} /> : <Zap size={24} />}
-            </div>
+          <div key={toast.id} className={`p-4 rounded-sm shadow-lg border backdrop-blur-md flex items-center space-x-4 transition-all duration-300 ${toast.status === 'WIN' ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-500' : 'bg-rose-500/10 border-rose-500/50 text-rose-500'}`}>
             <div className="pr-2">
-              <p className="text-white font-bold tracking-wide">{toast.symbol} {toast.status === 'WIN' ? 'Hit Take Profit! 🎯' : 'Hit Stop Loss 🛑'}</p>
-              <p className="text-sm text-gray-400 font-medium mt-0.5">{toast.tradeType} • PnL: <span className={toast.status === 'WIN' ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>{toast.pnl > 0 ? '+' : ''}{toast.pnl}R</span></p>
+              <p className="font-semibold tracking-wide">{toast.symbol} {toast.status === 'WIN' ? 'Hit Take Profit! 🎯' : 'Hit Stop Loss 🛑'}</p>
+              <p className="text-sm font-medium mt-0.5">{toast.tradeType} • PnL: <span>{toast.pnl > 0 ? '+' : ''}{toast.pnl}R</span></p>
             </div>
           </div>
         ))}
@@ -140,284 +119,280 @@ export default function Home() {
 
       {/* Settings Modal */}
       {showSettings && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-[#111] border border-white/10 p-8 rounded-3xl w-full max-w-md shadow-2xl relative">
-            <h2 className="text-2xl font-black text-white mb-6">System Config</h2>
-            <form onSubmit={saveSettings} className="space-y-6">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
+          <div className="bg-slate-800 border border-slate-700 p-6 rounded-sm w-full max-w-md shadow-2xl relative">
+            <h2 className="text-xl font-semibold text-slate-100 mb-6">System Configuration</h2>
+            <form onSubmit={saveSettings} className="space-y-4">
               <div>
-                <label className="block text-gray-400 text-xs font-bold uppercase tracking-wider mb-2">Account Balance ($)</label>
+                <label className="block text-slate-400 text-sm font-medium mb-1">Account Balance ($)</label>
                 <input 
                   type="number" 
                   step="0.01"
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white font-mono focus:outline-none focus:border-purple-500/50 transition-colors"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-sm px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors"
                   value={settings.account_balance}
                   onChange={(e) => setSettings({...settings, account_balance: parseFloat(e.target.value) || 0})}
                 />
               </div>
               <div>
-                <label className="block text-gray-400 text-xs font-bold uppercase tracking-wider mb-2">Risk per Trade (%)</label>
+                <label className="block text-slate-400 text-sm font-medium mb-1">Risk per Trade (%)</label>
                 <input 
                   type="number" 
                   step="0.1"
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white font-mono focus:outline-none focus:border-purple-500/50 transition-colors"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-sm px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors"
                   value={settings.risk_percentage}
                   onChange={(e) => setSettings({...settings, risk_percentage: parseFloat(e.target.value) || 0})}
                 />
               </div>
-              <div className="flex justify-end space-x-4 pt-4 border-t border-white/5">
-                <button type="button" onClick={() => setShowSettings(false)} className="px-5 py-2.5 rounded-xl text-gray-400 hover:text-white font-bold transition-colors">Cancel</button>
-                <button type="submit" className="px-5 py-2.5 rounded-xl bg-purple-500 hover:bg-purple-400 text-white font-black transition-colors shadow-[0_0_15px_rgba(168,85,247,0.4)]">Save Changes</button>
+              <div className="flex justify-end space-x-3 pt-4 mt-6 border-t border-slate-700">
+                <button type="button" onClick={() => setShowSettings(false)} className="px-4 py-2 rounded-sm text-slate-400 hover:text-slate-200 transition-colors">Cancel</button>
+                <button type="submit" className="px-4 py-2 rounded-sm bg-indigo-500 hover:bg-indigo-600 text-white font-medium transition-colors">Save Changes</button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      <div className="relative z-10 w-full min-h-screen lg:h-screen max-w-[1920px] mx-auto p-4 md:p-6 lg:p-8 flex flex-col lg:flex-row gap-6 md:gap-8 overflow-y-auto lg:overflow-hidden">
+      {/* Sidebar */}
+      <div className={`fixed inset-0 bg-slate-900/80 z-40 lg:hidden lg:z-auto transition-opacity duration-200 ${sidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} aria-hidden="true"></div>
+      <aside className={`absolute z-40 left-0 top-0 lg:static lg:left-auto lg:top-auto lg:translate-x-0 h-screen overflow-y-scroll lg:overflow-y-auto no-scrollbar w-64 lg:w-20 xl:w-64 flex flex-col bg-slate-800 border-r border-slate-700 transition-transform duration-200 ease-in-out ${sidebarOpen ? 'translate-x-0' : '-translate-x-64'}`}>
+        {/* Sidebar Header */}
+        <div className="flex justify-between mb-10 pr-3 sm:px-2 mt-4 lg:justify-center xl:justify-start xl:px-4">
+          <div className="flex items-center space-x-2 pl-4 lg:pl-0 xl:pl-0">
+            <div className="w-8 h-8 rounded bg-indigo-500 flex items-center justify-center">
+              <Zap size={18} className="text-white" />
+            </div>
+            <span className="text-slate-100 font-semibold text-lg lg:hidden xl:block">Novaire EA</span>
+          </div>
+          <button className="lg:hidden text-slate-400 hover:text-slate-200" onClick={() => setSidebarOpen(false)}>
+             <svg className="w-6 h-6 fill-current" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path d="M10.7 18.7l1.4-1.4L7.8 13H20v-2H7.8l4.3-4.3-1.4-1.4L4 12z" />
+             </svg>
+          </button>
+        </div>
+
+        {/* Links */}
+        <div className="space-y-8">
+          <div>
+            <h3 className="text-xs uppercase text-slate-500 font-semibold pl-4 lg:hidden xl:block mb-3">Pages</h3>
+            <ul className="mt-3 space-y-1">
+              <NavItem icon={<LayoutDashboard size={20} />} label="Dashboard" active />
+              <NavItem icon={<TrendingUp size={20} />} label="Signals" />
+              <NavItem icon={<History size={20} />} label="Performance" />
+            </ul>
+          </div>
+          <div>
+            <h3 className="text-xs uppercase text-slate-500 font-semibold pl-4 lg:hidden xl:block mb-3">Settings</h3>
+            <ul className="mt-3 space-y-1">
+              <NavItem icon={<Settings size={20} />} label="System Config" onClick={() => setShowSettings(true)} />
+            </ul>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Container */}
+      <div className="relative flex flex-col flex-1 overflow-y-auto overflow-x-hidden">
         
-        {/* Floating Left Sidebar */}
-        <aside className="w-20 bg-[#16161a]/80 backdrop-blur-3xl border border-white/5 rounded-[32px] shadow-2xl flex-col items-center py-8 hidden lg:flex h-full shrink-0">
-          <div className="relative group cursor-pointer mb-12">
-            <div className="absolute inset-0 bg-purple-500 blur-xl opacity-40 group-hover:opacity-80 transition-opacity duration-500 rounded-full"></div>
-            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-400 to-purple-600 flex items-center justify-center relative z-10 shadow-lg shadow-purple-500/20">
-              <Zap size={24} className="text-white fill-white" />
-            </div>
-          </div>
-          
-          <nav className="flex-1 flex flex-col items-center space-y-8 w-full">
-            <NavItem icon={<Activity size={22} />} active tooltip="Live Dashboard" />
-            <NavItem icon={<TrendingUp size={22} />} tooltip="Alpha Signals" />
-            <NavItem icon={<History size={22} />} tooltip="Performance" />
-          </nav>
-          
-          <div className="flex flex-col items-center space-y-8 w-full">
-            <NavItem icon={<Bell size={22} />} tooltip="Alerts" />
-            <NavItem icon={<Settings size={22} />} onClick={() => setShowSettings(true)} tooltip="System Config" />
-          </div>
-        </aside>
-
-        {/* Main Center Content */}
-        <main className="flex-1 flex flex-col lg:h-full lg:overflow-hidden gap-6">
-          
-          {/* Header */}
-          <header className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 pb-2 shrink-0">
-            <div>
-              <h1 className="text-3xl md:text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-white/50 tracking-tight font-display drop-shadow-sm">Novaire EA</h1>
-              <p className="text-purple-400/80 text-xs md:text-sm font-medium tracking-widest uppercase mt-1 md:mt-2">Institutional SMC Engine</p>
-            </div>
-            
-            <div className="flex space-x-2 md:space-x-3 overflow-x-auto w-full sm:w-auto pb-2 sm:pb-0 scrollbar-hide">
-              {['XAU/USD'].map((pair) => (
-                <button 
-                  key={pair} 
-                  onClick={() => setActiveSymbol(pair)}
-                  className={`flex-shrink-0 px-4 md:px-5 py-2 md:py-2.5 rounded-xl md:rounded-2xl text-xs md:text-sm font-bold tracking-wide transition-all duration-300 ${activeSymbol === pair ? 'bg-white/10 text-white shadow-[0_0_20px_rgba(255,255,255,0.05)] border border-white/20' : 'bg-transparent text-gray-500 hover:text-white hover:bg-white/5 border border-transparent'}`}>
-                  {pair}
+        {/* Header */}
+        <header className="sticky top-0 bg-slate-900 border-b border-slate-700 z-30">
+          <div className="px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center justify-between h-16 -mb-px">
+              
+              <div className="flex items-center">
+                <button className="text-slate-500 hover:text-slate-400 lg:hidden" onClick={() => setSidebarOpen(true)}>
+                  <svg className="w-6 h-6 fill-current" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="4" y="5" width="16" height="2" />
+                    <rect x="4" y="11" width="16" height="2" />
+                    <rect x="4" y="17" width="16" height="2" />
+                  </svg>
                 </button>
-              ))}
+                <div className="hidden sm:block ml-4 text-slate-100 font-semibold text-xl">Institutional SMC Engine</div>
+              </div>
+              
+              <div className="flex items-center space-x-3">
+                {/* Search (Mock) */}
+                <div className="hidden sm:block bg-slate-800 rounded-sm border border-slate-700 px-3 py-1.5 flex items-center space-x-2 text-slate-400">
+                   <Search size={16} />
+                   <span className="text-sm">Search signals...</span>
+                </div>
+                
+                {/* Symbol Tabs */}
+                <div className="flex bg-slate-800 rounded-sm border border-slate-700 p-1">
+                  {['XAU/USD'].map((pair) => (
+                    <button 
+                      key={pair} 
+                      onClick={() => setActiveSymbol(pair)}
+                      className={`px-3 py-1 text-sm rounded-sm transition-colors ${activeSymbol === pair ? 'bg-indigo-500 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}>
+                      {pair}
+                    </button>
+                  ))}
+                </div>
+                
+                <hr className="w-px h-6 bg-slate-700 mx-2 hidden sm:block" />
+                
+                {/* Notifications */}
+                <button className="w-8 h-8 flex items-center justify-center bg-slate-800 border border-slate-700 hover:border-slate-600 rounded-sm transition-colors text-slate-400 relative">
+                  <Bell size={16} />
+                  <div className="absolute top-0 right-0 w-2.5 h-2.5 bg-rose-500 border-2 border-slate-900 rounded-full"></div>
+                </button>
+              </div>
             </div>
-          </header>
-
-          {/* Chart Area */}
-          <div className="w-full flex-grow min-h-[400px] lg:min-h-0 shrink-0 lg:shrink">
-            <TradingChart symbol={activeSymbol} />
           </div>
-          
-          {/* Bottom Stats Floating Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 lg:gap-6 shrink-0 lg:h-36">
-            <StatsCard title="Monthly Winrate" value={`${stats.win_rate}%`} trend={`${stats.total_trades} trades`} highlight="emerald" />
-            <StatsCard title="Active Protocols" value="3" highlight="blue" />
-            <StatsCard title="Engine Status" value="Online" icon={<Activity className="text-emerald-400 animate-pulse" />} highlight="emerald" />
+        </header>
+
+        <main>
+          <div className="px-4 sm:px-6 lg:px-8 py-8 w-full max-w-9xl mx-auto">
+            
+            {/* Top Cards */}
+            <div className="grid grid-cols-12 gap-6">
+              <StatsCard colSpan="col-span-12 sm:col-span-6 xl:col-span-4" title="Monthly Winrate" value={`${stats.win_rate}%`} trend={stats.total_trades} />
+              <StatsCard colSpan="col-span-12 sm:col-span-6 xl:col-span-4" title="Active Protocols" value="3" highlight />
+              <StatsCard colSpan="col-span-12 sm:col-span-6 xl:col-span-4" title="Engine Status" value="Online" status="good" />
+            </div>
+
+            {/* Trading Chart */}
+            <div className="mt-6 bg-slate-800 shadow-lg rounded-sm border border-slate-700">
+              <header className="px-5 py-4 border-b border-slate-700">
+                <h2 className="font-semibold text-slate-100">Live Analysis: {activeSymbol}</h2>
+              </header>
+              <div className="p-1 h-[500px]">
+                <TradingChart symbol={activeSymbol} />
+              </div>
+            </div>
+
+            {/* Signal Data Table */}
+            <div className="mt-6 bg-slate-800 shadow-lg rounded-sm border border-slate-700">
+              <header className="px-5 py-4 border-b border-slate-700 flex justify-between items-center flex-wrap gap-2">
+                <h2 className="font-semibold text-slate-100">Signals Queue <span className="text-slate-500 font-medium ml-1">{signals.length}</span></h2>
+                
+                {/* Filter Pills */}
+                <div className="flex space-x-2 text-sm">
+                  {['All', 'Open', 'Hit TP', 'Hit SL', 'Closed'].map(f => (
+                    <button
+                      key={f}
+                      onClick={() => setFilter(f)}
+                      className={`px-3 py-1 rounded-full transition-colors ${filter === f ? 'bg-indigo-500 text-white' : 'text-slate-400 bg-slate-700/50 hover:bg-slate-700 hover:text-slate-200'}`}
+                    >
+                      {f}
+                    </button>
+                  ))}
+                </div>
+              </header>
+              
+              <div className="p-3">
+                <div className="overflow-x-auto">
+                  <table className="table-auto w-full text-slate-300">
+                    <thead className="text-xs uppercase text-slate-500 bg-slate-900/50 rounded-sm">
+                      <tr>
+                        <th className="p-3 whitespace-nowrap"><div className="font-semibold text-left">Signal</div></th>
+                        <th className="p-3 whitespace-nowrap"><div className="font-semibold text-left">Grade</div></th>
+                        <th className="p-3 whitespace-nowrap"><div className="font-semibold text-right">Entry</div></th>
+                        <th className="p-3 whitespace-nowrap"><div className="font-semibold text-right">Stop Loss</div></th>
+                        <th className="p-3 whitespace-nowrap"><div className="font-semibold text-right">Target</div></th>
+                        <th className="p-3 whitespace-nowrap"><div className="font-semibold text-center">Status</div></th>
+                        <th className="p-3 whitespace-nowrap"><div className="font-semibold text-left">Context</div></th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-sm divide-y divide-slate-700/50">
+                      {filteredSignals.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="p-8 text-center text-slate-500">No signals found for this filter.</td>
+                        </tr>
+                      ) : (
+                        filteredSignals.map((sig, idx) => {
+                          const isBuy = sig.type.includes("BUY");
+                          const typeColor = isBuy ? "text-emerald-500" : "text-rose-500";
+                          const typeBg = isBuy ? "bg-emerald-500/10" : "bg-rose-500/10";
+                          
+                          let statusText = sig.status === 'PENDING' ? 'PENDING' : sig.status === 'ACTIVE' ? 'OPEN' : sig.status === 'WIN' ? 'HIT TP' : 'HIT SL';
+                          if (sig.status === 'CANCELLED') statusText = 'CLOSED';
+                          
+                          let statusColor = "bg-slate-700 text-slate-300";
+                          if (statusText === 'HIT TP') statusColor = "bg-emerald-500/20 text-emerald-400";
+                          if (statusText === 'HIT SL') statusColor = "bg-rose-500/20 text-rose-400";
+                          if (statusText === 'OPEN') statusColor = "bg-indigo-500/20 text-indigo-400";
+
+                          return (
+                            <tr key={idx} className="hover:bg-slate-700/20 transition-colors">
+                              <td className="p-3 whitespace-nowrap">
+                                <div className="flex items-center">
+                                  <div className={`w-8 h-8 rounded-full flex items-center justify-center mr-3 ${typeBg} ${typeColor}`}>
+                                    {isBuy ? '↑' : '↓'}
+                                  </div>
+                                  <div className="font-medium text-slate-100">{sig.type} {sig.symbol.replace("/", "")}</div>
+                                </div>
+                              </td>
+                              <td className="p-3 whitespace-nowrap">
+                                <div className="text-left font-medium text-amber-500">{(sig as any).grade || 'A'}</div>
+                              </td>
+                              <td className="p-3 whitespace-nowrap">
+                                <div className="text-right text-slate-200 font-mono">{sig.entry.toFixed(2)}</div>
+                              </td>
+                              <td className="p-3 whitespace-nowrap">
+                                <div className="text-right text-rose-400 font-mono">{sig.sl.toFixed(2)}</div>
+                              </td>
+                              <td className="p-3 whitespace-nowrap">
+                                <div className="text-right text-emerald-400 font-mono">{sig.tp.toFixed(2)}</div>
+                              </td>
+                              <td className="p-3 whitespace-nowrap">
+                                <div className="text-center">
+                                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${statusColor}`}>{statusText}</span>
+                                </div>
+                              </td>
+                              <td className="p-3 max-w-xs truncate">
+                                <div className="text-left text-slate-400 text-xs truncate" title={sig.reasons.join(" • ")}>
+                                  {sig.reasons.join(" • ")}
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
           </div>
         </main>
-
-        {/* Floating Right Sidebar (Signal Queue) */}
-        <aside className="w-full lg:w-[450px] bg-[#121215]/80 backdrop-blur-3xl border border-white/5 rounded-[32px] flex flex-col min-h-[500px] lg:h-full shadow-2xl relative overflow-hidden shrink-0 lg:shrink">
-          {/* Header */}
-          <div className="p-6 pb-2 flex justify-between items-center">
-            <div>
-              <h3 className="font-display font-bold text-2xl text-white tracking-wide">
-                Signal
-              </h3>
-              <p className="text-gray-400 text-xs mt-1">Signal XAUUSD terbaru dari Novaire EA</p>
-            </div>
-            <div className="flex items-center space-x-1 bg-[#1a1a1e] px-3 py-1.5 rounded-full border border-white/5">
-              <Bell size={14} className="text-yellow-500 fill-yellow-500" />
-              <span className="text-white font-bold text-sm ml-1">{signals.length}</span>
-            </div>
-          </div>
-          
-          {/* Filter Pills */}
-          <div className="px-6 pb-4 pt-2 flex items-center space-x-2 overflow-x-auto scrollbar-hide shrink-0">
-            {['All', 'Open', 'Hit TP', 'Hit SL', 'Closed'].map(f => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                className={`px-5 py-1.5 rounded-full text-xs font-bold tracking-wide transition-all whitespace-nowrap ${filter === f ? 'bg-purple-600 text-white border border-purple-500' : 'bg-transparent border border-white/10 text-gray-400 hover:text-white hover:bg-white/5'}`}
-              >
-                {f}
-              </button>
-            ))}
-          </div>
-          
-          <div className="flex-1 overflow-y-auto p-6 pt-2 space-y-4 custom-scrollbar">
-            
-            {filteredSignals.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 px-4 text-center rounded-[24px] bg-white/[0.01] border border-white/5 border-dashed mt-12">
-                <p className="text-sm text-gray-400 font-medium">Belum ada sinyal yang sesuai filter.</p>
-              </div>
-            ) : (
-              filteredSignals.map((sig, idx) => {
-                const isBuy = sig.type.includes("BUY");
-                // Outline colors based on the reference: Yellow/Orange for SELL, Green for BUY
-                const outlineColor = isBuy ? "border-emerald-500/50" : "border-[#ffaa00]/50";
-                const textColor = isBuy ? "text-emerald-400" : "text-[#ff4444]";
-                const iconDir = isBuy ? "△" : "▽";
-                
-                // TP Levels logic (mocking 3 levels based on the main TP)
-                const distance = Math.abs(sig.tp - sig.entry);
-                const tp1 = isBuy ? sig.entry + distance * 0.33 : sig.entry - distance * 0.33;
-                const tp2 = isBuy ? sig.entry + distance * 0.66 : sig.entry - distance * 0.66;
-                const tp3 = sig.tp;
-
-                // Status pill
-                let statusText = sig.status === 'PENDING' ? 'PENDING' : sig.status === 'ACTIVE' ? 'OPEN' : sig.status === 'WIN' ? 'HIT TP' : 'HIT SL';
-                if (sig.status === 'CANCELLED') statusText = 'CLOSED';
-                const statusColor = statusText === 'HIT TP' ? (isBuy ? 'text-emerald-400 border-emerald-400' : 'text-[#ff4444] border-[#ff4444]') 
-                                  : statusText === 'HIT SL' ? (isBuy ? 'text-[#ff4444] border-[#ff4444]' : 'text-[#ff4444] border-[#ff4444]') 
-                                  : 'text-gray-400 border-gray-400';
-
-                return (
-                  <div key={idx} className={`bg-[#121215] border ${outlineColor} rounded-2xl p-5 shadow-xl relative overflow-hidden flex flex-col mb-4`}>
-                    
-                    {/* Header Row */}
-                    <div className="flex justify-between items-start mb-3">
-                      <div>
-                        <h4 className={`text-lg font-medium tracking-wide ${textColor}`}>
-                          {iconDir} {sig.type.replace(" LIMIT", "")} {sig.symbol.replace("/", "")}
-                        </h4>
-                        <div className="inline-flex items-center space-x-1 bg-white/5 border border-yellow-500/30 px-2 py-0.5 rounded text-[10px] text-yellow-500 font-bold mt-1">
-                          <span>★ ALL</span>
-                        </div>
-                      </div>
-                      
-                      {/* Status Pill */}
-                      <div className={`px-3 py-1 rounded-full border text-[10px] font-bold ${statusColor}`}>
-                        {statusText}
-                      </div>
-                    </div>
-                    
-                    <div className="flex flex-row">
-                      {/* Left Side (Grid) */}
-                      <div className="flex-1 space-y-2 mt-2">
-                        <div className="grid grid-cols-[50px_1fr] items-center">
-                          <span className="text-gray-400 text-xs">Entry</span>
-                          <span className="text-gray-200 text-sm font-mono text-right">{sig.entry.toFixed(2)}</span>
-                        </div>
-                        <div className="w-full h-px bg-white/5"></div>
-                        <div className="grid grid-cols-[50px_1fr] items-center">
-                          <span className="text-gray-400 text-xs">SL</span>
-                          <span className="text-[#ff4444] text-sm font-mono text-right">{sig.sl.toFixed(2)}</span>
-                        </div>
-                        <div className="w-full h-px bg-white/5"></div>
-                        <div className="grid grid-cols-[50px_1fr] items-center">
-                          <span className="text-gray-400 text-xs">TP1</span>
-                          <span className="text-emerald-400 text-sm font-mono text-right">{tp1.toFixed(2)}</span>
-                        </div>
-                        <div className="w-full h-px bg-white/5"></div>
-                        <div className="grid grid-cols-[50px_1fr] items-center">
-                          <span className="text-gray-400 text-xs">TP2</span>
-                          <span className="text-emerald-400 text-sm font-mono text-right">{tp2.toFixed(2)}</span>
-                        </div>
-                        <div className="w-full h-px bg-white/5"></div>
-                        <div className="grid grid-cols-[50px_1fr] items-center">
-                          <span className="text-gray-400 text-xs">TP3</span>
-                          <span className="text-emerald-400 text-sm font-mono text-right">{tp3.toFixed(2)}</span>
-                        </div>
-                      </div>
-                      
-                      {/* Right Side (Graphic) */}
-                      <div className="w-[120px] flex items-center justify-center pl-4 relative">
-                         {isBuy ? (
-                            <svg width="80" height="120" viewBox="0 0 80 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-                              <path d="M10 100 L70 20" stroke="#10B981" strokeWidth="1" strokeDasharray="2 2" opacity="0.3"/>
-                              {[...Array(6)].map((_, i) => (
-                                <g key={i} transform={`translate(${10 + i * 12}, ${90 - i * 14})`}>
-                                  <line x1="2" y1="-8" x2="2" y2="15" stroke="#10B981" strokeWidth="1" />
-                                  <rect x="0" y="0" width="4" height="10" fill="#10B981" />
-                                </g>
-                              ))}
-                            </svg>
-                         ) : (
-                            <svg width="80" height="120" viewBox="0 0 80 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-                              <path d="M10 20 L70 100" stroke="#ff4444" strokeWidth="1" opacity="0.3"/>
-                              <path d="M10 10 Q 40 10, 70 90" stroke="#ff4444" strokeWidth="1" opacity="0.5" fill="none"/>
-                              {[...Array(7)].map((_, i) => (
-                                <g key={i} transform={`translate(${10 + i * 10}, ${20 + i * 10 + (i * i * 0.5)})`}>
-                                  <line x1="2" y1="-5" x2="2" y2="18" stroke="#ff4444" strokeWidth="1" />
-                                  <rect x="0" y="0" width="5" height="12" fill="#ff4444" />
-                                </g>
-                              ))}
-                            </svg>
-                         )}
-                      </div>
-                    </div>
-                    
-                    {/* Bottom Info */}
-                    <div className="mt-4 pt-3 border-t border-white/5 flex items-center flex-wrap gap-1">
-                      {sig.reasons && sig.reasons.length > 0 ? (
-                        <p className="text-[10px] text-[#ffaa00] font-medium leading-relaxed">
-                          Risk medium • {sig.reasons.slice(0, 2).join(" • ")} {sig.reasons.length > 2 ? ` • ${sig.reasons[2]}` : ""}
-                        </p>
-                      ) : (
-                        <p className="text-[10px] text-[#ffaa00] font-medium">Risk medium • System Generated</p>
-                      )}
-                    </div>
-                  </div>
-                );
-              })
-            )}
-            
-          </div>
-        </aside>
-
       </div>
     </div>
   );
 }
 
 // Subcomponents
-function NavItem({ icon, active, tooltip, onClick }: { icon: React.ReactNode, active?: boolean, tooltip: string, onClick?: () => void }) {
+function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode, label: string, active?: boolean, onClick?: () => void }) {
   return (
-    <button onClick={onClick} className={`w-12 h-12 rounded-[16px] flex items-center justify-center transition-all duration-300 group relative
-      ${active ? 'bg-purple-600 text-white shadow-[0_0_15px_rgba(168,85,247,0.3)] border border-purple-500' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}>
-      {icon}
-      
-      {/* Tooltip */}
-      <span className="absolute left-16 px-3 py-1.5 bg-black/80 backdrop-blur-md text-white text-xs font-bold tracking-wide rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50 border border-white/10 pointer-events-none">
-        {tooltip}
-      </span>
-    </button>
+    <li>
+      <button onClick={onClick} className={`w-full flex items-center px-4 py-2 transition-colors lg:justify-center xl:justify-start ${active ? 'text-indigo-400 bg-slate-900/50 relative' : 'text-slate-400 hover:text-slate-200'}`}>
+        {active && <div className="absolute left-0 top-0 bottom-0 w-1 bg-indigo-500"></div>}
+        <span className="shrink-0">{icon}</span>
+        <span className="ml-3 font-medium text-sm lg:hidden xl:block">{label}</span>
+      </button>
+    </li>
   );
 }
 
-function StatsCard({ title, value, trend, icon, highlight }: { title: string, value: string, trend?: string, icon?: React.ReactNode, highlight: 'emerald' | 'blue' }) {
-  const glowColor = highlight === 'emerald' ? 'group-hover:bg-purple-500/10' : 'group-hover:bg-indigo-500/10';
-  const textColor = highlight === 'emerald' ? 'group-hover:text-purple-400' : 'group-hover:text-indigo-400';
-
+function StatsCard({ colSpan, title, value, trend, status, highlight }: { colSpan: string, title: string, value: string, trend?: number, status?: 'good' | 'bad', highlight?: boolean }) {
   return (
-    <div className={`bg-white/[0.02] backdrop-blur-md border border-white/5 rounded-[24px] p-6 hover:bg-white/[0.04] hover:border-white/10 hover:-translate-y-1 transition-all duration-500 relative overflow-hidden group flex flex-col justify-between h-full shadow-lg`}>
-      <div className={`absolute top-0 right-0 w-32 h-32 rounded-full blur-[40px] -mr-10 -mt-10 transition-colors duration-500 ${glowColor}`}></div>
-      
-      <div className="flex justify-between items-start relative z-10">
-        <p className="text-gray-400 text-sm font-semibold tracking-wider uppercase">{title}</p>
-        {icon && <div className="p-2 bg-white/5 rounded-xl">{icon}</div>}
-      </div>
-      
-      <div className="flex items-end space-x-3 relative z-10 mt-4">
-        <h3 className={`text-4xl font-black text-white font-mono tracking-tighter transition-colors duration-500 ${textColor}`}>{value}</h3>
-        {trend && <span className="text-xs text-purple-400 bg-purple-500/10 px-2 py-1 rounded-md font-bold border border-purple-500/20 mb-1">{trend}</span>}
+    <div className={`flex flex-col ${colSpan} bg-slate-800 shadow-lg rounded-sm border border-slate-700 p-5 relative overflow-hidden`}>
+      {highlight && <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 blur-[40px] rounded-full -mr-10 -mt-10"></div>}
+      <h2 className="text-slate-400 text-sm font-semibold mb-2">{title}</h2>
+      <div className="flex items-start">
+        <div className="text-3xl font-bold text-slate-100 mr-2">{value}</div>
+        {trend !== undefined && (
+          <div className="text-sm font-medium text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded-full mt-1">
+             {trend} trades
+          </div>
+        )}
+        {status === 'good' && (
+           <div className="flex items-center space-x-1 mt-1.5 text-emerald-500 text-sm font-medium">
+             <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+             <span>Active</span>
+           </div>
+        )}
       </div>
     </div>
   );
 }
+
