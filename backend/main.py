@@ -169,6 +169,8 @@ async def run_smc_analysis(tick: dict):
             sweeps = engine_ltf.detect_liquidity_sweeps()
             snr_zones = engine_ltf.detect_support_resistance()
             snd_zones = engine_ltf.detect_supply_demand()
+            pd_zones = engine_ltf.detect_premium_discount()
+            breakers = engine_ltf.detect_breaker_blocks(events)
             
             # Run SMC Engine on HTF to get trend
             engine_htf = SMCEngine(df_htf)
@@ -195,7 +197,9 @@ async def run_smc_analysis(tick: dict):
                     sweeps=sweeps,
                     htf_trend=htf_trend,
                     snr_zones=snr_zones,
-                    snd_zones=snd_zones
+                    snd_zones=snd_zones,
+                    pd_zones=pd_zones,
+                    breakers=breakers
                 )
             
         # Outside the lock - Broadcast to clients

@@ -33,8 +33,12 @@ async def send_discord_alert(signal: dict):
     }
     
     if signal.get('reasons'):
-        reasons_text = "\n".join([f"- {r}" for r in signal['reasons']])
-        embed["fields"].append({"name": "Confluence Reasons", "value": reasons_text, "inline": False})
+        # Take max 3 reasons, join in a single line to keep it clean
+        top_reasons = signal['reasons'][:3]
+        reasons_text = ", ".join(top_reasons)
+        if len(signal['reasons']) > 3:
+            reasons_text += "..."
+        embed["fields"].append({"name": "Confluence", "value": reasons_text, "inline": False})
         
     payload = {
         "username": "Novaire EA",

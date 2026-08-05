@@ -123,18 +123,19 @@ class SMCEngine:
                     "mitigated": False
                 })
                 
-        # Simple mitigation check (for current data snapshot)
+        # Strict mitigation check: If price even taps the FVG, consider it mitigated so we don't trade stale setups
         for fvg in fvgs:
             idx = fvg['index']
             for j in range(idx + 1, len(self.data)):
-                if fvg['type'] == 'FVG_BULLISH' and self.data[j]['low'] < fvg['bottom']:
+                if fvg['type'] == 'FVG_BULLISH' and self.data[j]['low'] <= fvg['top']:
                     fvg['mitigated'] = True
                     break
-                elif fvg['type'] == 'FVG_BEARISH' and self.data[j]['high'] > fvg['top']:
+                elif fvg['type'] == 'FVG_BEARISH' and self.data[j]['high'] >= fvg['bottom']:
                     fvg['mitigated'] = True
                     break
                     
-        return fvgs
+        # Return only fresh, unmitigated FVGs
+        return [f for f in fvgs if not f['mitigated']]
 
     def detect_order_blocks(self, structure_events: List[Dict]) -> List[Dict]:
         """
@@ -202,7 +203,20 @@ class SMCEngine:
                         "mitigated": False
                     })
                     
-        return obs
+        # Mitigation check for Order Blocks
+        for ob in obs:
+            idx = ob['index']
+            for j in range(idx + 1, len(self.data)):
+                # If price comes back and taps the OB, it's mitigated
+                if ob['type'] == 'OB_BULLISH' and self.data[j]['low'] <= ob['top']:
+                    ob['mitigated'] = True
+                    break
+                elif ob['type'] == 'OB_BEARISH' and self.data[j]['high'] >= ob['bottom']:
+                    ob['mitigated'] = True
+                    break
+                    
+        # Only return fresh, unmitigated Order Blocks
+        return [ob for ob in obs if not ob['mitigated']]
 
     def detect_liquidity_sweeps(self) -> List[Dict]:
         sweeps = []
@@ -224,24 +238,31 @@ class SMCEngine:
             
             # Bearish Sweep: price goes above last swing high, but closes below it
             if last_swing_high_idx < i and current_high > self.data[last_swing_high_idx]['high'] and current_close < self.data[last_swing_high_idx]['high']:
+                # If the swept swing was formed recently (e.g. < 15 candles ago), we classify it as an Inducement (IDM) sweep.
+                is_idm = (i - last_swing_high_idx) <= 15
+                
                 sweeps.append({
                     "type": "SWEEP_BEARISH",
                     "index": i,
                     "timestamp": row['timestamp'],
                     "level": self.data[last_swing_high_idx]['high'],
-                    "swept_swing_idx": last_swing_high_idx
+                    "swept_swing_idx": last_swing_high_idx,
+                    "is_idm": is_idm
                 })
                 # Reset to avoid multiple triggers for the same swing
                 last_swing_high_idx = None
                 
             # Bullish Sweep: price goes below last swing low, but closes above it
             elif last_swing_low_idx < i and current_low < self.data[last_swing_low_idx]['low'] and current_close > self.data[last_swing_low_idx]['low']:
+                is_idm = (i - last_swing_low_idx) <= 15
+                
                 sweeps.append({
                     "type": "SWEEP_BULLISH",
                     "index": i,
                     "timestamp": row['timestamp'],
                     "level": self.data[last_swing_low_idx]['low'],
-                    "swept_swing_idx": last_swing_low_idx
+                    "swept_swing_idx": last_swing_low_idx,
+                    "is_idm": is_idm
                 })
                 # Reset
                 last_swing_low_idx = None
@@ -276,7 +297,8 @@ class SMCEngine:
                     "type": "RESISTANCE",
                     "level": sum(cluster) / len(cluster), # Average level
                     "touches": len(cluster),
-                    "strength": "STRONG" if len(cluster) >= 3 else "MEDIUM"
+                    "strength": "STRONG" if len(cluster) >= 3 else "MEDIUM",
+                    "is_mnsr": len(cluster) >= 4 # Major Resistance
                 })
                 
         # Simple clustering for Support
@@ -296,7 +318,8 @@ class SMCEngine:
                     "type": "SUPPORT",
                     "level": sum(cluster) / len(cluster),
                     "touches": len(cluster),
-                    "strength": "STRONG" if len(cluster) >= 3 else "MEDIUM"
+                    "strength": "STRONG" if len(cluster) >= 3 else "MEDIUM",
+                    "is_mnsr": len(cluster) >= 4 # Major Support
                 })
                 
         return snr_zones
@@ -367,3 +390,136 @@ class SMCEngine:
                     
         # Return only unmitigated zones
         return [z for z in snd_zones if not z['mitigated']]
+
+    def detect_premium_discount(self) -> Optional[Dict]:
+        """
+        Calculate Premium and Discount zones based on the latest major dealing range.
+        Returns a dictionary with 'premium_low', 'discount_high', 'eq' (equilibrium).
+        """
+        last_high = None
+        last_low = None
+        
+        # Find the most recent Swing High and Swing Low to define the range
+        for i in range(len(self.data)-1, -1, -1):
+            if self.data[i]['swing_high'] and last_high is None:
+                last_high = self.data[i]['high']
+            if self.data[i]['swing_low'] and last_low is None:
+                last_low = self.data[i]['low']
+            if last_high is not None and last_low is not None:
+                break
+                
+        if last_high is None or last_low is None:
+            return None
+            
+        range_high = max(last_high, last_low)
+        range_low = min(last_high, last_low)
+        eq = (range_high + range_low) / 2.0
+        
+        return {
+            "premium_low": eq, # Area above EQ is Premium
+            "discount_high": eq, # Area below EQ is Discount
+            "eq": eq,
+            "range_high": range_high,
+            "range_low": range_low
+        }
+
+    def detect_breaker_blocks(self, structure_events: List[Dict]) -> List[Dict]:
+        """
+        Detect Breaker Blocks (Failed Order Blocks).
+        Re-evaluates Order Blocks but checks if they were decisively broken (closed through).
+        If a Bullish OB is broken, it becomes a Bearish Breaker Block, and vice versa.
+        """
+        # First, generate all raw OBs (ignoring mitigation for now)
+        obs = []
+        for event in structure_events:
+            break_idx = event['index']
+            swing_idx = event['broken_swing_idx']
+            
+            if "BULLISH" in event['type']:
+                search_start = max(0, swing_idx - 10)
+                low_idx = search_start
+                min_low = self.data[search_start]['low']
+                for j in range(search_start, break_idx):
+                    if self.data[j]['low'] < min_low:
+                        min_low = self.data[j]['low']
+                        low_idx = j
+                
+                ob_candle = None
+                for j in range(low_idx, -1, -1):
+                    if self.data[j]['close'] < self.data[j]['open']:
+                        ob_candle = j
+                        break
+                
+                if ob_candle is not None:
+                    obs.append({
+                        "original_type": "OB_BULLISH",
+                        "top": self.data[ob_candle]['open'], 
+                        "bottom": self.data[ob_candle]['low'],
+                        "timestamp": self.data[ob_candle]['timestamp'],
+                        "index": ob_candle
+                    })
+                    
+            elif "BEARISH" in event['type']:
+                search_start = max(0, swing_idx - 10)
+                high_idx = search_start
+                max_high = self.data[search_start]['high']
+                for j in range(search_start, break_idx):
+                    if self.data[j]['high'] > max_high:
+                        max_high = self.data[j]['high']
+                        high_idx = j
+                
+                ob_candle = None
+                for j in range(high_idx, -1, -1):
+                    if self.data[j]['close'] > self.data[j]['open']:
+                        ob_candle = j
+                        break
+                        
+                if ob_candle is not None:
+                    obs.append({
+                        "original_type": "OB_BEARISH",
+                        "top": self.data[ob_candle]['high'],
+                        "bottom": self.data[ob_candle]['open'], 
+                        "timestamp": self.data[ob_candle]['timestamp'],
+                        "index": ob_candle
+                    })
+
+        breakers = []
+        # Check if they were broken decisively
+        for ob in obs:
+            idx = ob['index']
+            broken = False
+            for j in range(idx + 1, len(self.data)):
+                # Decisive break = close beyond the OB boundary
+                if ob['original_type'] == 'OB_BULLISH' and self.data[j]['close'] < ob['bottom']:
+                    broken = True
+                    break
+                elif ob['original_type'] == 'OB_BEARISH' and self.data[j]['close'] > ob['top']:
+                    broken = True
+                    break
+                    
+            if broken:
+                breakers.append({
+                    "type": "BREAKER_BEARISH" if ob['original_type'] == 'OB_BULLISH' else "BREAKER_BULLISH",
+                    "top": ob['top'],
+                    "bottom": ob['bottom'],
+                    "timestamp": ob['timestamp'],
+                    "index": ob['index']
+                })
+                
+        # Return only unmitigated Breaker Blocks (price hasn't returned to test them yet after breaking)
+        unmitigated_breakers = []
+        for brk in breakers:
+            idx = brk['index']
+            mitigated = False
+            for j in range(idx + 1, len(self.data)):
+                # If price returns to tap the breaker block
+                if brk['type'] == 'BREAKER_BULLISH' and self.data[j]['low'] <= brk['top']:
+                    mitigated = True
+                    break
+                elif brk['type'] == 'BREAKER_BEARISH' and self.data[j]['high'] >= brk['bottom']:
+                    mitigated = True
+                    break
+            if not mitigated:
+                unmitigated_breakers.append(brk)
+                
+        return unmitigated_breakers
