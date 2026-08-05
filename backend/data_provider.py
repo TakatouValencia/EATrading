@@ -107,21 +107,54 @@ class DataProvider:
             return self._generate_dummy_data(symbol)
             
     def _generate_dummy_data(self, symbol: str) -> List[Dict]:
-        """Generate dummy data for development without API key."""
-        print(f"Generating dummy data for {symbol}...")
-        
+        """Fetch real data via Yahoo Finance as fallback instead of dummy data."""
+        print(f"Fallback to yfinance for {symbol}...")
+        try:
+            import yfinance as yf
+            
+            # Map symbol to Yahoo Finance ticker
+            yf_ticker = "GC=F" if "XAU" in symbol else "EURUSD=X"
+            
+            # Fetch last 3 days of 5-minute data
+            df = yf.download(yf_ticker, period="3d", interval="5m", progress=False)
+            
+            if df.empty:
+                print(f"yfinance returned empty for {yf_ticker}, using simulated data")
+                return self._simulate_fallback(symbol)
+                
+            formatted_data = []
+            for index, row in df.iterrows():
+                # Check for NaN values in pandas
+                import pandas as pd
+                if pd.isna(row['Open']) or pd.isna(row['Close']):
+                    continue
+                    
+                formatted_data.append({
+                    'timestamp': index.isoformat(),
+                    'open': float(row['Open']),
+                    'high': float(row['High']),
+                    'low': float(row['Low']),
+                    'close': float(row['Close']),
+                    'volume': float(row.get('Volume', 0))
+                })
+                
+            return formatted_data
+        except Exception as e:
+            print(f"yfinance fallback error: {e}")
+            return self._simulate_fallback(symbol)
+
+    def _simulate_fallback(self, symbol: str) -> List[Dict]:
+        """True fallback dummy data if EVERYTHING fails."""
         now = datetime.now()
         data = []
-        
-        # Base price (closer to reality to avoid huge gaps with live websocket data)
         base = 2400.0 if "XAU" in symbol else 1.1000
         volatility = 2.0 if "XAU" in symbol else 0.0010
+        import random
+        from datetime import timedelta
         
         current_price = base
-        
         for i in range(100):
             timestamp = now - timedelta(minutes=5 * (100 - i))
-            
             open_price = current_price
             close_price = current_price + (random.random() - 0.5) * volatility
             high_price = max(open_price, close_price) + (random.random() * (volatility / 2))
@@ -135,7 +168,5 @@ class DataProvider:
                 'low': low_price,
                 'volume': 1000
             })
-            
             current_price = close_price
-            
         return data
