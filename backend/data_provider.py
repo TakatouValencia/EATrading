@@ -115,8 +115,9 @@ class DataProvider:
             # Map symbol to Yahoo Finance ticker
             yf_ticker = "GC=F" if "XAU" in symbol else "EURUSD=X"
             
-            # Fetch last 3 days of 5-minute data
-            df = yf.download(yf_ticker, period="3d", interval="5m", progress=False)
+            # Use Ticker().history() for safer single-index columns
+            ticker = yf.Ticker(yf_ticker)
+            df = ticker.history(period="3d", interval="5m")
             
             if df.empty:
                 print(f"yfinance returned empty for {yf_ticker}, using simulated data")
@@ -124,7 +125,6 @@ class DataProvider:
                 
             formatted_data = []
             for index, row in df.iterrows():
-                # Check for NaN values in pandas
                 import pandas as pd
                 if pd.isna(row['Open']) or pd.isna(row['Close']):
                     continue
