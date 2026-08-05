@@ -113,23 +113,29 @@ class DataProvider:
         now = datetime.now()
         data = []
         
-        # Base price
-        base = 2000.0 if "XAU" in symbol else 1.1000
+        # Base price (closer to reality to avoid huge gaps with live websocket data)
+        base = 2400.0 if "XAU" in symbol else 1.1000
         volatility = 2.0 if "XAU" in symbol else 0.0010
         
         current_price = base
         
         for i in range(100):
             timestamp = now - timedelta(minutes=5 * (100 - i))
-            current_price += (random.random() - 0.5) * volatility
+            
+            open_price = current_price
+            close_price = current_price + (random.random() - 0.5) * volatility
+            high_price = max(open_price, close_price) + (random.random() * (volatility / 2))
+            low_price = min(open_price, close_price) - (random.random() * (volatility / 2))
             
             data.append({
                 'timestamp': timestamp.isoformat(),
-                'open': current_price,
-                'close': current_price,
-                'high': current_price + volatility/2,
-                'low': current_price - volatility/2,
+                'open': open_price,
+                'close': close_price,
+                'high': high_price,
+                'low': low_price,
                 'volume': 1000
             })
+            
+            current_price = close_price
             
         return data
