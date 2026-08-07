@@ -42,12 +42,19 @@ class SignalGenerator:
     async def evaluate_confluence(self, symbol: str, current_price: float, 
                             events: List[Dict], obs: List[Dict], fvgs: List[Dict], sweeps: List[Dict] = None, htf_trend: str = None,
                             snr_zones: List[Dict] = None, snd_zones: List[Dict] = None, pd_zones: Dict = None, breakers: List[Dict] = None,
-                            dxy_trend: str = None) -> Optional[Dict]:
+                            dxy_trend: str = None, fibo_ote: Dict = None, poc_price: float = None, trade_manager = None) -> Optional[Dict]:
         """
         Evaluate if a new signal should be generated based on SMC confluence and LLM approval.
         Implements High Probability Grading (Grade A/B) based on Liquidity Sweeps and Multi-Timeframe.
         """
         
+        # Check Trading Allowed (Psychology Limits)
+        if trade_manager:
+            allowed, reason = trade_manager.check_trading_allowed()
+            if not allowed:
+                print(f"[{symbol}] Trading blocked by Psychology Manager: {reason}")
+                return None
+                
         # Check Cooldown
         if symbol in self.cooldowns:
             if datetime.now() < self.cooldowns[symbol]:
@@ -240,11 +247,37 @@ class SignalGenerator:
                         reasons.append(f"{snr['strength']} Resistance")
                     break
 
+        # Criterion 7: Fibonacci OTE (Optimal Trade Entry)
+        in_ote = False
+        if fibo_ote:
+            if is_bullish and fibo_ote.get("bullish_ote"):
+                ote = fibo_ote["bullish_ote"]
+                if ote["bottom"] <= current_price <= ote["top"]:
+                    in_ote = True
+                    confluence_score += 2
+                    reasons.append("In Bullish Fibo OTE (0.618-0.786)")
+            elif not is_bullish and fibo_ote.get("bearish_ote"):
+                ote = fibo_ote["bearish_ote"]
+                if ote["bottom"] <= current_price <= ote["top"]:
+                    in_ote = True
+                    confluence_score += 2
+                    reasons.append("In Bearish Fibo OTE (0.618-0.786)")
+
+        # Criterion 8: Volume Profile POC
+        near_poc = False
+        if poc_price:
+            dist_to_poc = abs(current_price - poc_price) / current_price
+            if dist_to_poc < 0.002:
+                near_poc = True
+                confluence_score += 2
+                reasons.append("Volume Profile POC Support/Resistance")
+
         # --- SETUP GRADING LOGIC (ADVANCED SMC) ---
         # Strict validation: If not in correct PD zone, we still allow it but deduct points
         if not in_correct_pd_zone:
             confluence_score -= 1 # Penalize score
             
+        # Grade A+: Grade A + Fibo OTE + POC
         # Grade A: Has Sweep/IDM AND (OB, FVG, or Breaker) AND HTF Alignment AND ICT Killzone
         # Grade B: Missing one strong confluence but has decent score
         setup_grade = "NONE"
@@ -253,8 +286,11 @@ class SignalGenerator:
         has_poi = (valid_ob or valid_fvg or valid_breaker)
         
         if has_poi:
-            # Grade A requirement remains strict
-            if has_sweep and has_idm and has_htf_alignment and is_killzone and in_correct_pd_zone:
+            if has_sweep and has_idm and has_htf_alignment and is_killzone and in_correct_pd_zone and in_ote and near_poc:
+                setup_grade = "A+"
+                risk_multiplier = 1.5
+                reasons.append("GRADE A+: Perfect Setup (Fibo + POC)")
+            elif has_sweep and has_idm and has_htf_alignment and is_killzone and in_correct_pd_zone:
                 setup_grade = "A"
                 risk_multiplier = 1.0
                 reasons.append("GRADE A: High Prob")

@@ -536,3 +536,95 @@ class SMCEngine:
                 unmitigated_breakers.append(brk)
                 
         return unmitigated_breakers
+
+    def detect_fibo_ote(self) -> Optional[Dict]:
+        """
+        Calculate Fibonacci Optimal Trade Entry (OTE) zones.
+        OTE is typically the 0.618 to 0.786 retracement of the latest swing.
+        """
+        last_high = None
+        last_low = None
+        
+        for i in range(len(self.data)-1, -1, -1):
+            if self.data[i]['swing_high'] and last_high is None:
+                last_high = self.data[i]['high']
+            if self.data[i]['swing_low'] and last_low is None:
+                last_low = self.data[i]['low']
+            if last_high is not None and last_low is not None:
+                break
+                
+        if last_high is None or last_low is None:
+            return None
+            
+        range_high = max(last_high, last_low)
+        range_low = min(last_high, last_low)
+        range_size = range_high - range_low
+        
+        if range_size == 0:
+            return None
+            
+        bullish_ote_top = range_high - (range_size * 0.618)
+        bullish_ote_bottom = range_high - (range_size * 0.786)
+        
+        bearish_ote_bottom = range_low + (range_size * 0.618)
+        bearish_ote_top = range_low + (range_size * 0.786)
+        
+        return {
+            "bullish_ote": {"top": bullish_ote_top, "bottom": bullish_ote_bottom},
+            "bearish_ote": {"top": bearish_ote_top, "bottom": bearish_ote_bottom}
+        }
+
+    def calculate_volume_profile(self, lookback: int = 100) -> Optional[float]:
+        """
+        Calculate the Point of Control (POC) using Volume Profile over the last `lookback` candles.
+        POC is the price level with the highest traded volume.
+        """
+        if len(self.data) < 2:
+            return None
+            
+        start_idx = max(0, len(self.data) - lookback)
+        recent_data = self.data[start_idx:]
+        
+        highest_price = max(c['high'] for c in recent_data)
+        lowest_price = min(c['low'] for c in recent_data)
+        
+        if highest_price == lowest_price:
+            return highest_price
+            
+        num_bins = 50
+        bin_size = (highest_price - lowest_price) / num_bins
+        if bin_size == 0:
+            return highest_price
+            
+        bins = [0.0] * num_bins
+        
+        for candle in recent_data:
+            volume = candle.get('volume', 0)
+            if volume == 0:
+                continue
+                
+            c_high = candle['high']
+            c_low = candle['low']
+            
+            start_bin = int((c_low - lowest_price) / bin_size)
+            end_bin = int((c_high - lowest_price) / bin_size)
+            
+            start_bin = max(0, min(start_bin, num_bins - 1))
+            end_bin = max(0, min(end_bin, num_bins - 1))
+            
+            bins_spanned = end_bin - start_bin + 1
+            vol_per_bin = volume / bins_spanned
+            
+            for b in range(start_bin, end_bin + 1):
+                bins[b] += vol_per_bin
+                
+        max_vol = -1
+        poc_bin_idx = 0
+        for i, vol in enumerate(bins):
+            if vol > max_vol:
+                max_vol = vol
+                poc_bin_idx = i
+                
+        poc_price = lowest_price + (poc_bin_idx * bin_size) + (bin_size / 2)
+        
+        return poc_price

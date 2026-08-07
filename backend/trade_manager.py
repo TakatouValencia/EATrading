@@ -1,12 +1,44 @@
 from database import Database
 from typing import Dict, List
 
+from datetime import datetime, timedelta
+
 class TradeManager:
     def __init__(self, db: Database, on_trade_closed=None):
         self.db = db
         self.tracked_trades = []
         self.on_trade_closed = on_trade_closed
+        self.daily_pnl = 0.0
+        self.consecutive_losses = 0
+        self.current_trading_day = datetime.now().date()
         self._load_tracked_trades()
+
+    def _check_daily_reset(self):
+        today = datetime.now().date()
+        if today != self.current_trading_day:
+            self.daily_pnl = 0.0
+            self.consecutive_losses = 0
+            self.current_trading_day = today
+
+    def _update_stats(self, won: bool, pnl: float):
+        self._check_daily_reset()
+        self.daily_pnl += pnl
+        if won:
+            self.consecutive_losses = 0
+        else:
+            if pnl < 0:
+                self.consecutive_losses += 1
+
+    def check_trading_allowed(self) -> tuple[bool, str]:
+        """Check if trading is allowed based on psychological risk limits."""
+        self._check_daily_reset()
+        if self.daily_pnl <= -3.0: # -3% max drawdown (assuming 1R = 1%)
+            return False, f"Daily Drawdown Limit Reached ({self.daily_pnl}R)"
+        if self.daily_pnl >= 5.0: # +5% daily target
+            return False, f"Daily Profit Target Reached ({self.daily_pnl}R)"
+        if self.consecutive_losses >= 2:
+            return False, f"Max Consecutive Losses Reached ({self.consecutive_losses})"
+        return True, "Allowed"
 
     def _load_tracked_trades(self):
         recent_signals = self.db.get_historical_signals(limit=50)
@@ -120,6 +152,8 @@ class TradeManager:
                             pnl = 0.5 if won else -0.5
                             
                             trade['status'] = new_status
+                            self._update_stats(won, pnl)
+                            
                             if trade_id:
                                 self.db.update_signal_status(trade_id, new_status, pnl)
                             self.tracked_trades.remove(trade)
@@ -177,6 +211,8 @@ class TradeManager:
                         pnl = 2.0 if trade.get('partial_taken') else 3.0
                     else:
                         pnl = 0.5 if trade.get('partial_taken') else -1.0
+                    
+                    self._update_stats(won, pnl)
                     
                     if trade_id:
                         self.db.update_signal_status(trade_id, new_status, pnl)
