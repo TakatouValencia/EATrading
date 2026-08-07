@@ -121,7 +121,7 @@ async def run_smc_analysis(tick: dict):
                     else:
                         last_ltf_time_obj = last_ltf_time
                         
-                    time_diff_ltf = (tick_time_obj - last_ltf_time_obj).total_seconds()
+                    time_diff_ltf = (tick_time_obj.replace(tzinfo=None) - last_ltf_time_obj.replace(tzinfo=None)).total_seconds()
                     
                     if time_diff_ltf < 300: # Within 5 minutes
                         last_ltf['close'] = tick_price
@@ -147,7 +147,7 @@ async def run_smc_analysis(tick: dict):
                     else:
                         last_htf_time_obj = last_htf_time
                         
-                    time_diff_htf = (tick_time_obj - last_htf_time_obj).total_seconds()
+                    time_diff_htf = (tick_time_obj.replace(tzinfo=None) - last_htf_time_obj.replace(tzinfo=None)).total_seconds()
                     
                     if time_diff_htf < 3600: # Within 1 hour
                         last_htf['close'] = tick_price
