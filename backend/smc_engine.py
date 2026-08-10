@@ -628,3 +628,73 @@ class SMCEngine:
         poc_price = lowest_price + (poc_bin_idx * bin_size) + (bin_size / 2)
         
         return poc_price
+
+    def detect_amd(self) -> List[Dict]:
+        """
+        Detect AMD (Accumulation, Manipulation, Distribution) setups.
+        Accumulation: Asian Range (20:00 - 00:00 EST)
+        Manipulation: London/NY Killzone sweeps the Asian High/Low
+        Distribution: Reversal after the sweep
+        """
+        from datetime import datetime
+        
+        amd_setups = []
+        current_asian_high = None
+        current_asian_low = None
+        asian_date = None
+        
+        for i, row in enumerate(self.data):
+            ts_str = row['timestamp']
+            if not ts_str: continue
+            
+            try:
+                if isinstance(ts_str, str):
+                    dt = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
+                else:
+                    dt = ts_str
+                    
+                # Convert to EST (approx UTC-4 for summer/default)
+                est_hour = (dt.hour - 4) % 24
+                
+                # Check if in Asian Session (20:00 - 23:59 EST)
+                if 20 <= est_hour <= 23:
+                    if asian_date != dt.date():
+                        asian_date = dt.date()
+                        current_asian_high = row['high']
+                        current_asian_low = row['low']
+                    else:
+                        current_asian_high = max(current_asian_high, row['high'])
+                        current_asian_low = min(current_asian_low, row['low'])
+                        
+                # Check for Manipulation (Judas Swing) in London (2-5) or NY (8-11)
+                elif current_asian_high is not None and current_asian_low is not None:
+                    if (2 <= est_hour <= 5) or (8 <= est_hour <= 11):
+                        current_high = row['high']
+                        current_low = row['low']
+                        current_close = row['close']
+                        
+                        # Bullish AMD: Sweep Asian Low, then close higher (manipulation rejected)
+                        if current_low < current_asian_low and current_close > current_asian_low:
+                            amd_setups.append({
+                                "type": "AMD_BULLISH",
+                                "manipulation_level": current_asian_low,
+                                "timestamp": row['timestamp'],
+                                "index": i,
+                                "mitigated": False
+                            })
+                            current_asian_low = None # Prevent multiple triggers
+                            
+                        # Bearish AMD: Sweep Asian High, then close lower
+                        elif current_high > current_asian_high and current_close < current_asian_high:
+                            amd_setups.append({
+                                "type": "AMD_BEARISH",
+                                "manipulation_level": current_asian_high,
+                                "timestamp": row['timestamp'],
+                                "index": i,
+                                "mitigated": False
+                            })
+                            current_asian_high = None
+            except Exception:
+                pass
+                
+        return amd_setups

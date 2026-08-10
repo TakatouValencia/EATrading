@@ -175,6 +175,7 @@ async def run_smc_analysis(tick: dict):
             breakers = engine_ltf.detect_breaker_blocks(events)
             fibo_ote = engine_ltf.detect_fibo_ote()
             poc_price = engine_ltf.calculate_volume_profile(lookback=100)
+            amd_setups = engine_ltf.detect_amd()
             
             # Run SMC Engine on HTF to get trend
             engine_htf = SMCEngine(df_htf)
@@ -224,7 +225,8 @@ async def run_smc_analysis(tick: dict):
                     dxy_trend=dxy_trend,
                     fibo_ote=fibo_ote,
                     poc_price=poc_price,
-                    trade_manager=trade_manager
+                    trade_manager=trade_manager,
+                    amd_setups=amd_setups
                 )
             
         # Outside the lock - Broadcast to clients

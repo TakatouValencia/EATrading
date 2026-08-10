@@ -42,7 +42,8 @@ class SignalGenerator:
     async def evaluate_confluence(self, symbol: str, current_price: float, 
                             events: List[Dict], obs: List[Dict], fvgs: List[Dict], sweeps: List[Dict] = None, htf_trend: str = None,
                             snr_zones: List[Dict] = None, snd_zones: List[Dict] = None, pd_zones: Dict = None, breakers: List[Dict] = None,
-                            dxy_trend: str = None, fibo_ote: Dict = None, poc_price: float = None, trade_manager = None) -> Optional[Dict]:
+                            dxy_trend: str = None, fibo_ote: Dict = None, poc_price: float = None, trade_manager = None,
+                            amd_setups: List[Dict] = None) -> Optional[Dict]:
         """
         Evaluate if a new signal should be generated based on SMC confluence and LLM approval.
         Implements High Probability Grading (Grade A/B) based on Liquidity Sweeps and Multi-Timeframe.
@@ -272,6 +273,21 @@ class SignalGenerator:
                 confluence_score += 2
                 reasons.append("Volume Profile POC Support/Resistance")
 
+        # Criterion 9: AMD Pattern (Accumulation, Manipulation, Distribution)
+        has_amd = False
+        if amd_setups:
+            for amd in reversed(amd_setups):
+                if is_bullish and amd['type'] == "AMD_BULLISH":
+                    has_amd = True
+                    confluence_score += 3
+                    reasons.append("AMD Pattern (Asian Sweep -> Distribution)")
+                    break
+                elif not is_bullish and amd['type'] == "AMD_BEARISH":
+                    has_amd = True
+                    confluence_score += 3
+                    reasons.append("AMD Pattern (Asian Sweep -> Distribution)")
+                    break
+
         # --- SETUP GRADING LOGIC (ADVANCED SMC) ---
         # Strict validation: If not in correct PD zone, we still allow it but deduct points
         if not in_correct_pd_zone:
@@ -286,10 +302,15 @@ class SignalGenerator:
         has_poi = (valid_ob or valid_fvg or valid_breaker)
         
         if has_poi:
+            # If AMD is present, we can upgrade the setup to A or A+ easily
             if has_sweep and has_idm and has_htf_alignment and is_killzone and in_correct_pd_zone and in_ote and near_poc:
                 setup_grade = "A+"
                 risk_multiplier = 1.5
                 reasons.append("GRADE A+: Perfect Setup (Fibo + POC)")
+            elif has_amd and has_htf_alignment:
+                setup_grade = "A+"
+                risk_multiplier = 1.5
+                reasons.append("GRADE A+: AMD High Prob Setup")
             elif has_sweep and has_idm and has_htf_alignment and is_killzone and in_correct_pd_zone:
                 setup_grade = "A"
                 risk_multiplier = 1.0
