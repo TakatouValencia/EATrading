@@ -101,7 +101,9 @@ async def run_smc_analysis(tick: dict):
                 tick_time = tick.get('timestamp')
                 tick_price = tick['price']
                 
-                if isinstance(tick_time, str):
+                if isinstance(tick_time, (int, float)):
+                    tick_time_obj = datetime.fromtimestamp(tick_time)
+                elif isinstance(tick_time, str):
                     try:
                         tick_time_obj = datetime.fromisoformat(tick_time.replace('Z', '+00:00'))
                     except:
@@ -123,7 +125,7 @@ async def run_smc_analysis(tick: dict):
                         
                     time_diff_ltf = (tick_time_obj.replace(tzinfo=None) - last_ltf_time_obj.replace(tzinfo=None)).total_seconds()
                     
-                    if time_diff_ltf < 300: # Within 5 minutes
+                    if 0 <= time_diff_ltf < 300: # Within 5 minutes
                         last_ltf['close'] = tick_price
                         last_ltf['high'] = max(last_ltf['high'], tick_price)
                         last_ltf['low'] = min(last_ltf['low'], tick_price)
@@ -149,7 +151,7 @@ async def run_smc_analysis(tick: dict):
                         
                     time_diff_htf = (tick_time_obj.replace(tzinfo=None) - last_htf_time_obj.replace(tzinfo=None)).total_seconds()
                     
-                    if time_diff_htf < 3600: # Within 1 hour
+                    if 0 <= time_diff_htf < 3600: # Within 1 hour
                         last_htf['close'] = tick_price
                         last_htf['high'] = max(last_htf['high'], tick_price)
                         last_htf['low'] = min(last_htf['low'], tick_price)
