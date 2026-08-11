@@ -315,11 +315,11 @@ class SignalGenerator:
                 setup_grade = "A"
                 risk_multiplier = 1.0
                 reasons.append("GRADE A: High Prob")
-            # Grade B requirement lowered to >= 2 so we get 2-3 signals a day more easily
-            elif confluence_score >= 2: 
+            # Grade B: Pure M5 SMC Setup (BOS/ChoCh + POI) to appear frequently without needing strict confluences
+            else: 
                 setup_grade = "B"
                 risk_multiplier = 0.5
-                reasons.append("GRADE B: Standard")
+                reasons.append("GRADE B: M5 SMC Setup")
         
         if setup_grade in ["A", "B"] and entry_target and sl_target:
             signal_type = "BUY LIMIT" if is_bullish else "SELL LIMIT"
@@ -364,7 +364,8 @@ class SignalGenerator:
                 tp_target = entry_target - effective_tp_dist
                 
             # --- LLM APPROVAL PHASE ---
-            if self.client:
+            # Bypass LLM for Grade B to ensure fast and frequent signals
+            if self.client and setup_grade in ["A", "A+"]:
                 news_sentiment = self.fetch_market_sentiment()
                 reasons.append(f"Sentiment: {news_sentiment.split(':')[0]}")
                 
