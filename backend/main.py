@@ -236,19 +236,29 @@ async def run_smc_analysis(tick: dict):
         }
         
         if signal:
-            payload["signal"] = signal
-            
-            # Since we allow finding new setups while old ones are pending, 
-            # we must cancel the old pending setups so we don't end up with multiple limit orders.
-            await trade_manager.cancel_pending_trades(symbol)
-            
-            result = db.save_signal(signal)
-            if result and "id" in result:
-                signal["id"] = result["id"]
-            trade_manager.add_trade(signal)
-            
-            # Send Discord notification (runs asynchronously in background)
-            await send_discord_alert(signal)
+            # Check if it's identical to an existing pending signal to avoid spam
+            is_identical = False
+            for t in trade_manager.tracked_trades:
+                if t['symbol'] == symbol and t['status'] == 'PENDING':
+                    t_entry = float(t.get('entry_price', t.get('entry', 0)))
+                    if t['type'] == signal['type'] and abs(t_entry - signal['entry']) < 0.0001:
+                        is_identical = True
+                        break
+                        
+            if not is_identical:
+                payload["signal"] = signal
+                
+                # Since we allow finding new setups while old ones are pending, 
+                # we must cancel the old pending setups so we don't end up with multiple limit orders.
+                await trade_manager.cancel_pending_trades(symbol)
+                
+                result = db.save_signal(signal)
+                if result and "id" in result:
+                    signal["id"] = result["id"]
+                trade_manager.add_trade(signal)
+                
+                # Send Discord notification (runs asynchronously in background)
+                await send_discord_alert(signal)
             
         await trade_manager.process_tick(tick)
             

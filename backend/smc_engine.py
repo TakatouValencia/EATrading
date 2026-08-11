@@ -136,18 +136,19 @@ class SMCEngine:
                     "mitigated": False
                 })
                 
-        # Strict mitigation check: If price even taps the FVG, consider it mitigated so we don't trade stale setups
+        # Relaxed mitigation/invalidation check: Only invalidate if price closes beyond the FVG boundary
+        # This allows the FVG to be recognized as a valid POI during a retest
         for fvg in fvgs:
             idx = fvg['index']
             for j in range(idx + 1, len(self.data)):
-                if fvg['type'] == 'FVG_BULLISH' and self.data[j]['low'] <= fvg['top']:
+                if fvg['type'] == 'FVG_BULLISH' and self.data[j]['close'] < fvg['bottom']:
                     fvg['mitigated'] = True
                     break
-                elif fvg['type'] == 'FVG_BEARISH' and self.data[j]['high'] >= fvg['bottom']:
+                elif fvg['type'] == 'FVG_BEARISH' and self.data[j]['close'] > fvg['top']:
                     fvg['mitigated'] = True
                     break
                     
-        # Return only fresh, unmitigated FVGs
+        # Return valid (not completely invalidated) FVGs
         return [f for f in fvgs if not f['mitigated']]
 
     def detect_order_blocks(self, structure_events: List[Dict]) -> List[Dict]:
@@ -216,19 +217,19 @@ class SMCEngine:
                         "mitigated": False
                     })
                     
-        # Mitigation check for Order Blocks
+        # Relaxed mitigation/invalidation check for Order Blocks
         for ob in obs:
             idx = ob['index']
             for j in range(idx + 1, len(self.data)):
-                # If price comes back and taps the OB, it's mitigated
-                if ob['type'] == 'OB_BULLISH' and self.data[j]['low'] <= ob['top']:
+                # An OB is only considered fully mitigated/invalidated if price closes beyond it
+                if ob['type'] == 'OB_BULLISH' and self.data[j]['close'] < ob['bottom']:
                     ob['mitigated'] = True
                     break
-                elif ob['type'] == 'OB_BEARISH' and self.data[j]['high'] >= ob['bottom']:
+                elif ob['type'] == 'OB_BEARISH' and self.data[j]['close'] > ob['top']:
                     ob['mitigated'] = True
                     break
                     
-        # Only return fresh, unmitigated Order Blocks
+        # Return valid (not completely invalidated) Order Blocks
         return [ob for ob in obs if not ob['mitigated']]
 
     def detect_liquidity_sweeps(self) -> List[Dict]:
@@ -390,18 +391,18 @@ class SMCEngine:
                     "mitigated": False
                 })
                 
-        # Mitigation check
+        # Relaxed mitigation/invalidation check
         for zone in snd_zones:
             idx = zone['index']
             for j in range(idx + 1, len(self.data)):
-                if zone['type'] == 'DEMAND' and self.data[j]['low'] < zone['top']:
+                if zone['type'] == 'DEMAND' and self.data[j]['close'] < zone['bottom']:
                     zone['mitigated'] = True
                     break
-                elif zone['type'] == 'SUPPLY' and self.data[j]['high'] > zone['bottom']:
+                elif zone['type'] == 'SUPPLY' and self.data[j]['close'] > zone['top']:
                     zone['mitigated'] = True
                     break
                     
-        # Return only unmitigated zones
+        # Return valid (not completely invalidated) zones
         return [z for z in snd_zones if not z['mitigated']]
 
     def detect_premium_discount(self) -> Optional[Dict]:
