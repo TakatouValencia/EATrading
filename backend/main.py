@@ -204,11 +204,10 @@ async def run_smc_analysis(tick: dict):
                     if dxy_events:
                         dxy_trend = "BULLISH" if "BULLISH" in dxy_events[-1]['type'] else "BEARISH"
             
-            # Check for Signals ONLY if we don't already have an ACTIVE (running) trade for this symbol
-            # If we only have a PENDING trade, we allow the engine to find a newer/fresher setup
-            # and replace the old pending one.
+            # Check for Signals ONLY if we don't already have an ACTIVE or PENDING trade for this symbol
+            # We want to focus on 1 signal at a time.
             signal = None
-            if not trade_manager.has_running_trade(symbol):
+            if not trade_manager.has_active_trade(symbol):
                 # Now evaluate_confluence is async (calls Gemini LLM)
                 signal = await signal_generator.evaluate_confluence(
                     symbol=symbol,
