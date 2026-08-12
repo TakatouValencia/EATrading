@@ -34,7 +34,7 @@ app.add_middleware(
 db = Database()
 trade_manager = TradeManager(db)
 data_provider = DataProvider()
-signal_generator = SignalGenerator(cooldown_hours=0.5)
+signal_generator = SignalGenerator(cooldown_minutes=15)
 
 # WebSocket Connections
 class ConnectionManager:

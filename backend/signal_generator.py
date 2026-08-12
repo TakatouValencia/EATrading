@@ -6,10 +6,10 @@ from risk_calculator import calculate_pips, calculate_lot_size
 import settings_manager
 
 class SignalGenerator:
-    def __init__(self, cooldown_hours: int = 1):
+    def __init__(self, cooldown_minutes: int = 15):
         self.active_signals = {}  # symbol -> signal_dict
         self.cooldowns = {}       # symbol -> expiration_time
-        self.cooldown_hours = cooldown_hours
+        self.cooldown_minutes = cooldown_minutes
         
         # Setup Custom LLM (OpenAI-compatible)
         self.llm_api_key = os.getenv("LLM_API_KEY")
@@ -330,22 +330,22 @@ class SignalGenerator:
             if bos_level:
                 if is_bullish:
                     # Enter at the higher of traditional entry or BOS level, capped by current price
-                    aggressive_entry = min(max(entry_target, bos_level), current_price - 0.5)
+                    aggressive_entry = min(max(entry_target, bos_level), current_price - 0.2)
                     entry_target = (entry_target + aggressive_entry) / 2.0
                 else:
-                    aggressive_entry = max(min(entry_target, bos_level), current_price + 0.5)
+                    aggressive_entry = max(min(entry_target, bos_level), current_price + 0.2)
                     entry_target = (entry_target + aggressive_entry) / 2.0
             
             # Hitung jarak resiko (SL) berdasarkan struktur market (OB / FVG)
             raw_risk = abs(entry_target - sl_target)
             
-            # Widen SL ke 30-50 pips ($3 - $5 untuk XAU/USD) untuk menghindari stop hunt, tapi jangan terlalu lebar
+            # Widen SL ke 50-80 pips ($5 - $8 untuk XAU/USD) untuk menghindari stop hunt, tapi jangan terlalu lebar
             if "XAU" in symbol:
-                min_risk, max_risk = 3.0, 5.0  # 30 - 50 pips (reduced from 50-70)
-                min_tp, max_tp = 6.0, 15.0     # 60 - 150 pips
+                min_risk, max_risk = 5.0, 8.0  # 50 - 80 pips
+                min_tp, max_tp = 10.0, 24.0     # 100 - 240 pips
             else:
-                min_risk, max_risk = 0.003, 0.005
-                min_tp, max_tp = 0.006, 0.015
+                min_risk, max_risk = 0.005, 0.008
+                min_tp, max_tp = 0.010, 0.024
                 
             # Terapkan SL yang dinamis tapi dibatasi
             effective_risk = max(min_risk, min(raw_risk, max_risk))
@@ -453,7 +453,7 @@ JSON Format to Return:
             }
             
             self.active_signals[symbol] = signal
-            self.cooldowns[symbol] = datetime.now() + timedelta(hours=self.cooldown_hours)
+            self.cooldowns[symbol] = datetime.now() + timedelta(minutes=self.cooldown_minutes)
             
             return signal
             
