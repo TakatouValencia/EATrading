@@ -324,17 +324,16 @@ class SignalGenerator:
         if setup_grade in ["A", "B"] and entry_target and sl_target:
             signal_type = "BUY LIMIT" if is_bullish else "SELL LIMIT"
             
-            # Aggressive Entry: Pull the entry closer to the broken structure level (S/R Flip)
-            # so signals don't feel 'too far' and actually get filled.
-            bos_level = last_event.get('level')
-            if bos_level:
-                if is_bullish:
-                    # Enter at the higher of traditional entry or BOS level, capped by current price
-                    aggressive_entry = min(max(entry_target, bos_level), current_price - 0.2)
-                    entry_target = (entry_target + aggressive_entry) / 2.0
-                else:
-                    aggressive_entry = max(min(entry_target, bos_level), current_price + 0.2)
-                    entry_target = (entry_target + aggressive_entry) / 2.0
+            # Pastikan entry_target valid untuk Limit Order
+            # Limit order tidak boleh dieksekusi di harga yang sudah terlewat
+            if is_bullish:
+                # BUY LIMIT: Harga masuk harus di bawah harga saat ini
+                if entry_target >= current_price:
+                    entry_target = current_price - 0.5  # Force limit order
+            else:
+                # SELL LIMIT: Harga masuk harus di atas harga saat ini
+                if entry_target <= current_price:
+                    entry_target = current_price + 0.5  # Force limit order
             
             # Hitung jarak resiko (SL) berdasarkan struktur market (OB / FVG)
             raw_risk = abs(entry_target - sl_target)
