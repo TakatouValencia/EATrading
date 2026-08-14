@@ -17,14 +17,31 @@ async def run_backtest():
     db = DummyDB()
     tm = TradeManager(db)
     backtest_stats = {
-        "IS": {"WIN": 0, "LOSS": 0, "PARTIAL_WIN": 0, "pnl": 0.0},
-        "OOS": {"WIN": 0, "LOSS": 0, "PARTIAL_WIN": 0, "pnl": 0.0}
+        "IS": {"WIN": 0, "LOSS": 0, "PARTIAL_WIN": 0, "pnl": 0.0, "current_consec_loss": 0, "max_consec_loss": 0, "peak_pnl": 0.0, "max_drawdown": 0.0},
+        "OOS": {"WIN": 0, "LOSS": 0, "PARTIAL_WIN": 0, "pnl": 0.0, "current_consec_loss": 0, "max_consec_loss": 0, "peak_pnl": 0.0, "max_drawdown": 0.0}
     }
     
     def on_close(trade, status, pnl):
         phase = trade.get('phase', 'IS')
-        backtest_stats[phase][status] = backtest_stats[phase].get(status, 0) + 1
-        backtest_stats[phase]["pnl"] += pnl
+        stats = backtest_stats[phase]
+        stats[status] = stats.get(status, 0) + 1
+        stats["pnl"] += pnl
+        
+        # Track consecutive losses
+        if status == "LOSS":
+            stats["current_consec_loss"] += 1
+            if stats["current_consec_loss"] > stats["max_consec_loss"]:
+                stats["max_consec_loss"] = stats["current_consec_loss"]
+        else:
+            stats["current_consec_loss"] = 0
+            
+        # Track max drawdown (in R)
+        if stats["pnl"] > stats["peak_pnl"]:
+            stats["peak_pnl"] = stats["pnl"]
+        
+        current_dd = stats["peak_pnl"] - stats["pnl"]
+        if current_dd > stats["max_drawdown"]:
+            stats["max_drawdown"] = current_dd
         
     tm.on_trade_closed = on_close
 
@@ -194,6 +211,8 @@ async def run_backtest():
             print("Win Rate (WR)           : 0.00% (Belum ada trade tertutup)")
             
         print(f"Total PNL (Estimasi RR) : {backtest_stats[phase_key]['pnl']:.2f} R")
+        print(f"Max Consecutive Loss    : {backtest_stats[phase_key]['max_consec_loss']}")
+        print(f"Max Drawdown            : {backtest_stats[phase_key]['max_drawdown']:.2f} R")
 
     print_stats("IN-SAMPLE (Bulan 1)", "IS", total_signals_in)
     print_stats("OUT-OF-SAMPLE (Bulan 2)", "OOS", total_signals_out)
