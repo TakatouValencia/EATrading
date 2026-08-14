@@ -40,6 +40,18 @@ async def send_discord_alert(signal: dict):
             reasons_text += "..."
         embed["fields"].append({"name": "Confluence", "value": reasons_text, "inline": False})
         
+    # Add Smart Scaling instructions so users execute it correctly
+    entry = float(signal.get('entry', 0))
+    sl = float(signal.get('sl', 0))
+    atr_dist = abs(entry - sl) / 1.5 # Estimate ATR from SL distance
+    partial_tp = entry + (0.5 * atr_dist) if "BUY" in signal.get('type', '') else entry - (0.5 * atr_dist)
+    
+    embed["fields"].append({
+        "name": "⚙️ Smart Scaling Guide", 
+        "value": f"1. Amankan **50% Profit** di area **{partial_tp:.2f}**.\n2. Segera geser SL ke **Break Even ({entry:.2f})** setelah partial.\n3. Biarkan sisa 50% *running* ke Final TP.", 
+        "inline": False
+    })
+        
     payload = {
         "username": "Novaire EA",
         "content": "🔔 @everyone Sinyal Baru Terdeteksi!",
