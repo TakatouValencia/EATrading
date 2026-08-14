@@ -10,21 +10,34 @@ load_dotenv()
 
 async def main():
     dp = DataProvider()
-    sg = SignalGenerator(cooldown_hours=0)
+    sg = SignalGenerator(cooldown_minutes=0)
     symbol = "XAU/USD"
     print(f"Fetching data for {symbol}...")
-    
-    # User wants M15 for analysis, M5 for confirmation.
-    # In standard multi-timeframe SMC, M15 is HTF (analysis) and M5 is LTF (entry/confirmation)
+    df_h4 = dp.get_historical_data(symbol, interval="4h")
+    df_h1 = dp.get_historical_data(symbol, interval="1h")
     df_htf = dp.get_historical_data(symbol, interval="15min")
-    df_ltf = dp.get_historical_data(symbol, interval="5min")
+    df_ltf = dp.get_historical_data(symbol, interval="1min")
     
-    if not df_htf or not df_ltf:
+    if not df_htf or not df_ltf or not df_h1 or not df_h4:
         print("Failed to fetch data.")
         return
         
-    print(f"Got {len(df_htf)} M15 candles and {len(df_ltf)} M5 candles.")
+    print(f"Got {len(df_h4)} H4, {len(df_h1)} H1, {len(df_htf)} M15 and {len(df_ltf)} M1 candles.")
     
+    # Run SMC Engine on H4
+    h4_trend = None
+    if df_h4:
+        h4_events = SMCEngine(df_h4).detect_bos_choch()
+        if h4_events:
+            h4_trend = "BULLISH" if "BULLISH" in h4_events[-1]['type'] else "BEARISH"
+            
+    # Run SMC Engine on H1
+    h1_trend = None
+    if df_h1:
+        h1_events = SMCEngine(df_h1).detect_bos_choch()
+        if h1_events:
+            h1_trend = "BULLISH" if "BULLISH" in h1_events[-1]['type'] else "BEARISH"
+            
     # Run SMC Engine on M15 (HTF)
     engine_htf = SMCEngine(df_htf)
     htf_events = engine_htf.detect_bos_choch()
@@ -37,7 +50,7 @@ async def main():
             htf_trend = "BEARISH"
     print(f"M15 (HTF) Trend: {htf_trend}")
     
-    # Run SMC Engine on M5 (LTF)
+    # Run SMC Engine on M1 (LTF)
     engine_ltf = SMCEngine(df_ltf)
     events = engine_ltf.detect_bos_choch()
     fvgs = engine_ltf.detect_fvg()
@@ -47,7 +60,7 @@ async def main():
     snd_zones = engine_ltf.detect_supply_demand()
     
     current_price = df_ltf[-1]['close']
-    print(f"Current M5 Price: {current_price}")
+    print(f"Current M1 Price: {current_price}")
     
     # Evaluate confluence
     dxy_trend = None
@@ -61,6 +74,9 @@ async def main():
                 dxy_trend = "BULLISH" if "BULLISH" in dxy_events[-1]['type'] else "BEARISH"
                 print(f"DXY HTF Trend: {dxy_trend}")
                 
+    atr = engine_ltf.calculate_atr(period=14)
+    reversal_patterns = engine_ltf.detect_reversal_patterns()
+    
     signal = await sg.evaluate_confluence(
         symbol=symbol,
         current_price=current_price,
@@ -69,9 +85,14 @@ async def main():
         fvgs=fvgs,
         sweeps=sweeps,
         htf_trend=htf_trend,
+        h1_trend=h1_trend,
+        h4_trend=h4_trend,
         snr_zones=snr_zones,
         snd_zones=snd_zones,
-        dxy_trend=dxy_trend
+        dxy_trend=dxy_trend,
+        atr=atr,
+        reversal_patterns=reversal_patterns,
+        engine_ltf=engine_ltf
     )
     
     if signal:
@@ -93,7 +114,7 @@ async def main():
         
     else:
         print("\n=== NO VALID SIGNAL FOUND ===")
-        print(f"Latest structure event on M5: {events[-1]['type'] if events else 'None'}")
+        print(f"Latest structure event on M1: {events[-1]['type'] if events else 'None'}")
         print(f"Unmitigated OBs: {len([ob for ob in obs if not ob['mitigated']])}")
         print(f"Unmitigated FVGs: {len([fvg for fvg in fvgs if not fvg['mitigated']])}")
         print(f"SNR Zones: {len(snr_zones)}")

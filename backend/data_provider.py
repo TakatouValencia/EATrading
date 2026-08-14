@@ -68,7 +68,7 @@ class DataProvider:
         """Fetch historical data via REST API."""
         if not self.api_key:
             # Return dummy data for development if no key
-            return self._generate_dummy_data(symbol)
+            return self._generate_dummy_data(symbol, interval)
             
         url = f"{self.rest_url}/time_series"
         params = {
@@ -100,13 +100,13 @@ class DataProvider:
                 return formatted_data
             else:
                 print(f"Error fetching historical data (fallback to dummy): {data}")
-                return self._generate_dummy_data(symbol)
+                return self._generate_dummy_data(symbol, interval)
                 
         except Exception as e:
             print(f"REST API error (fallback to dummy): {e}")
-            return self._generate_dummy_data(symbol)
+            return self._generate_dummy_data(symbol, interval)
             
-    def _generate_dummy_data(self, symbol: str) -> List[Dict]:
+    def _generate_dummy_data(self, symbol: str, interval: str = "5min") -> List[Dict]:
         """Fetch real data via Yahoo Finance as fallback instead of dummy data."""
         print(f"Fallback to yfinance for {symbol}...")
         try:
@@ -120,10 +120,18 @@ class DataProvider:
             else:
                 yf_ticker = "EURUSD=X"
             
-            # Use Ticker().history() for safer single-index columns
-            ticker = yf.Ticker(yf_ticker)
-            df = ticker.history(period="3d", interval="5m")
+            # Map interval from twelvedata ('1min', '15min') to yfinance ('1m', '15m')
+            yf_interval = interval.replace("min", "m")
+            period = "7d" if yf_interval == "1m" else "60d"
             
+            ticker = yf.Ticker(yf_ticker)
+            if yf_interval == "4h":
+                df_1h = ticker.history(period="730d", interval="1h")
+                df = df_1h.resample('4h').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}).dropna()
+            else:
+                if yf_interval == "1h": period = "730d" # Max for 1h
+                df = ticker.history(period=period, interval=yf_interval)
+                
             if df.empty:
                 print(f"yfinance returned empty for {yf_ticker}, using simulated data")
                 return self._simulate_fallback(symbol)

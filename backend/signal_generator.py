@@ -41,9 +41,10 @@ class SignalGenerator:
 
     async def evaluate_confluence(self, symbol: str, current_price: float, 
                             events: List[Dict], obs: List[Dict], fvgs: List[Dict], sweeps: List[Dict] = None, htf_trend: str = None,
+                            h1_trend: str = None, h4_trend: str = None, engine_ltf = None,
                             snr_zones: List[Dict] = None, snd_zones: List[Dict] = None, pd_zones: Dict = None, breakers: List[Dict] = None,
                             dxy_trend: str = None, fibo_ote: Dict = None, poc_price: float = None, trade_manager = None,
-                            amd_setups: List[Dict] = None) -> Optional[Dict]:
+                            amd_setups: List[Dict] = None, atr: float = 0.5, reversal_patterns: List[str] = None) -> Optional[Dict]:
         """
         Evaluate if a new signal should be generated based on SMC confluence and LLM approval.
         Implements High Probability Grading (Grade A/B) based on Liquidity Sweeps and Multi-Timeframe.
@@ -87,6 +88,17 @@ class SignalGenerator:
                 has_htf_alignment = True
                 reasons.append(f"HTF Trend Alignment ({htf_trend})")
                 
+        # Multi-Timeframe Bias Filter (H1 and H4) - Crucial for XAUUSD
+        if "XAU" in symbol:
+            if h1_trend and h4_trend:
+                if is_bullish and (h1_trend == "BEARISH" or h4_trend == "BEARISH"):
+                    # Strict MTF filtering: Reject if M1/M15 opposes H1/H4
+                    return None
+                elif not is_bullish and (h1_trend == "BULLISH" or h4_trend == "BULLISH"):
+                    return None
+                confluence_score += 2
+                reasons.append(f"MTF Bias Aligned (H1: {h1_trend}, H4: {h4_trend})")
+                
         # Intermarket Correlation (DXY)
         if dxy_trend and "XAU" in symbol:
             if is_bullish and dxy_trend == "BEARISH":
@@ -109,19 +121,23 @@ class SignalGenerator:
         is_killzone = False
         if event_time_str:
             try:
-                # Basic parsing, assume UTC if no tzinfo, or just extract hour
                 if isinstance(event_time_str, str):
                     dt = datetime.fromisoformat(event_time_str.replace('Z', '+00:00'))
                 else:
                     dt = event_time_str
                 
-                # Convert to EST for ICT Killzones (UTC-5/4, approximate as UTC-4 for summer)
-                est_hour = (dt.hour - 4) % 24
-                # London Killzone (02:00 - 05:00 EST) or NY Killzone (08:00 - 11:00 EST)
-                if (2 <= est_hour <= 5) or (8 <= est_hour <= 11):
+                # Convert to GMT (assume input is UTC since timezone is +00:00 or Z)
+                gmt_hour = dt.hour
+                # London (07:00-10:00 GMT), NY (12:00-15:00 GMT)
+                if (7 <= gmt_hour < 10) or (12 <= gmt_hour < 15):
                     is_killzone = True
                     confluence_score += 2
-                    reasons.append("ICT Killzone")
+                    reasons.append("High Session Confidence (London/NY Killzone)")
+                else:
+                    if "XAU" in symbol:
+                        # For XAUUSD, ignore signals outside killzone or treat them as Low Session Confidence
+                        reasons.append("Low Session Confidence (Outside Killzone)")
+                        # In strict mode, we could return None here
             except:
                 pass
                 
@@ -139,6 +155,10 @@ class SignalGenerator:
         else:
             # If we can't calculate PD, assume true but no bonus points
             in_correct_pd_zone = True
+
+        # Define dynamic buffer for SL/Limit distance
+        is_xau = "XAU" in symbol
+        buffer_dist = 0.5 if is_xau else 0.0005
 
         # Criterion 1: Liquidity Sweep & IDM (CRITICAL FOR GRADE A)
         has_sweep = False
@@ -175,7 +195,7 @@ class SignalGenerator:
                 # Enter at the top of the FVG for more frequent fills
                 if not entry_target: 
                     entry_target = fvg['top']
-                    sl_target = fvg['bottom'] - 0.5
+                    sl_target = fvg['bottom'] - buffer_dist
                 break
             elif not is_bullish and fvg['type'] == "FVG_BEARISH" and not fvg['mitigated']:
                 valid_fvg = fvg
@@ -183,7 +203,7 @@ class SignalGenerator:
                 reasons.append("Unmitigated Bearish FVG")
                 if not entry_target:
                     entry_target = fvg['bottom']
-                    sl_target = fvg['top'] + 0.5
+                    sl_target = fvg['top'] + buffer_dist
                 break
 
         # Criterion 3: Order Block proximity / Valid OB (Stronger than FVG alone)
@@ -196,7 +216,7 @@ class SignalGenerator:
                 # Overwrite FVG entry if OB exists, or use OB as secondary confirmation
                 if not entry_target:
                     entry_target = ob['top']
-                    sl_target = ob['bottom'] - 0.5
+                    sl_target = ob['bottom'] - buffer_dist
                 break
             elif not is_bullish and ob['type'] == "OB_BEARISH" and not ob['mitigated']:
                 valid_ob = ob
@@ -204,7 +224,7 @@ class SignalGenerator:
                 reasons.append("Valid Bearish OB")
                 if not entry_target:
                     entry_target = ob['bottom']
-                    sl_target = ob['top'] + 0.5
+                    sl_target = ob['top'] + buffer_dist
                 break
 
         # Criterion 4: Breaker Blocks (ICT)
@@ -217,7 +237,7 @@ class SignalGenerator:
                     reasons.append("Bullish Breaker Block")
                     if not entry_target:
                         entry_target = brk['top']
-                        sl_target = brk['bottom'] - 0.5
+                        sl_target = brk['bottom'] - buffer_dist
                     break
                 elif not is_bullish and brk['type'] == "BREAKER_BEARISH":
                     valid_breaker = brk
@@ -225,13 +245,15 @@ class SignalGenerator:
                     reasons.append("Bearish Breaker Block")
                     if not entry_target:
                         entry_target = brk['bottom']
-                        sl_target = brk['top'] + 0.5
+                        sl_target = brk['top'] + buffer_dist
                     break
 
         # Criterion 5 & 6: Support/Resistance (MNSR) & Supply/Demand (Minor confluences)
+        valid_snr = False
         if snr_zones:
             for snr in snr_zones:
                 if is_bullish and snr['type'] == "SUPPORT" and abs(current_price - snr['level']) / current_price < 0.002:
+                    valid_snr = True
                     if snr.get('is_mnsr'):
                         confluence_score += 2
                         reasons.append("Major Support (MNSR)")
@@ -240,6 +262,7 @@ class SignalGenerator:
                         reasons.append(f"{snr['strength']} Support")
                     break
                 elif not is_bullish and snr['type'] == "RESISTANCE" and abs(current_price - snr['level']) / current_price < 0.002:
+                    valid_snr = True
                     if snr.get('is_mnsr'):
                         confluence_score += 2
                         reasons.append("Major Resistance (MNSR)")
@@ -299,67 +322,86 @@ class SignalGenerator:
         setup_grade = "NONE"
         risk_multiplier = 0.0
         
-        has_poi = (valid_ob or valid_fvg or valid_breaker)
+        has_poi = (valid_ob or valid_fvg or valid_breaker or valid_snr)
         
         if has_poi:
-            # If AMD is present, we can upgrade the setup to A or A+ easily
-            if has_sweep and has_idm and has_htf_alignment and is_killzone and in_correct_pd_zone and in_ote and near_poc:
-                setup_grade = "A+"
-                risk_multiplier = 1.5
-                reasons.append("GRADE A+: Perfect Setup (Fibo + POC)")
-            elif has_amd and has_htf_alignment:
-                setup_grade = "A+"
-                risk_multiplier = 1.5
-                reasons.append("GRADE A+: AMD High Prob Setup")
-            elif has_sweep and has_idm and has_htf_alignment and is_killzone and in_correct_pd_zone:
-                setup_grade = "A"
-                risk_multiplier = 1.0
-                reasons.append("GRADE A: High Prob")
-            # Grade B: Pure M5 SMC Setup (BOS/ChoCh + POI) to appear frequently without needing strict confluences
-            else: 
-                setup_grade = "B"
-                risk_multiplier = 0.5
-                reasons.append("GRADE B: M5 SMC Setup")
+            # ATR Scalping High WR Logic
+            has_reversal = reversal_patterns and (any("BULLISH" in k for k in reversal_patterns) if is_bullish else any("BEARISH" in k for k in reversal_patterns))
+            
+            if has_reversal:
+                if has_htf_alignment:
+                    setup_grade = "A"
+                    reasons.append("GRADE A: ATR Scalping (HTF Alignment + POI + Reversal Pattern)")
+                else:
+                    setup_grade = "B"
+                    reasons.append("GRADE B: ATR Scalping Counter-Trend (POI + Reversal Pattern)")
+                    
+                for k in reversal_patterns:
+                    reasons.append(f"Candlestick Pattern: {k}")
+                    
+                entry_target = current_price
+                sl_target = current_price # will be adjusted by ATR
+            else:
+                return None
         
         if setup_grade in ["A", "B"] and entry_target and sl_target:
-            signal_type = "BUY LIMIT" if is_bullish else "SELL LIMIT"
+            signal_type = "BUY" if is_bullish else "SELL"
             
-            # Pastikan entry_target valid untuk Limit Order
-            # Limit order tidak boleh dieksekusi di harga yang sudah terlewat
-            if is_bullish:
-                # BUY LIMIT: Harga masuk harus di bawah harga saat ini
-                if entry_target >= current_price:
-                    entry_target = current_price - 0.5  # Force limit order
-            else:
-                # SELL LIMIT: Harga masuk harus di atas harga saat ini
-                if entry_target <= current_price:
-                    entry_target = current_price + 0.5  # Force limit order
+            # Market order executes exactly at current_price
+            entry_target = current_price
             
-            # Hitung jarak resiko (SL) berdasarkan struktur market (OB / FVG)
-            raw_risk = abs(entry_target - sl_target)
+            # High WR Logic: Gunakan ATR untuk SL dan TP
+            # SL = Entry +/- (1.5 * ATR)
+            # TP = Entry +/- (1.0 * ATR)
             
-            # Widen SL ke 50-80 pips ($5 - $8 untuk XAU/USD) untuk menghindari stop hunt, tapi jangan terlalu lebar
+            if atr is None or atr <= 0:
+                atr = 1.0 if "XAU" in symbol else 0.001
+            
+            # Minimum > 100 pips TP (150 pips = 15.0 points)
             if "XAU" in symbol:
-                min_risk, max_risk = 5.0, 8.0  # 50 - 80 pips
-                min_tp, max_tp = 10.0, 24.0     # 100 - 240 pips
+                min_tp_dist = 15.0
+            elif "JPY" in symbol:
+                min_tp_dist = 1.5
             else:
-                min_risk, max_risk = 0.005, 0.008
-                min_tp, max_tp = 0.010, 0.024
+                min_tp_dist = 0.0150
                 
-            # Terapkan SL yang dinamis tapi dibatasi
-            effective_risk = max(min_risk, min(raw_risk, max_risk))
+            effective_tp_dist = max(2.0 * atr, min_tp_dist)
             
-            # Update harga SL sesuai perhitungan risk
-            sl_target = (entry_target - effective_risk) if is_bullish else (entry_target + effective_risk)
+            # Minimum SL Floor
+            if "XAU" in symbol:
+                min_sl_floor = max(1.0 * atr, 3.0)  # At least 30 pips or 1.0 ATR
+            elif "JPY" in symbol:
+                min_sl_floor = max(1.0 * atr, 0.3)
+            else:
+                min_sl_floor = max(1.0 * atr, 0.0030)
+                
+            # SL = Swing point +/- (1.0 * ATR buffer)
+            # Find significant swing point
+            swing_point = entry_target
+            if engine_ltf:
+                swing_point = engine_ltf.get_recent_swing(is_bullish=is_bullish, current_price=entry_target, atr=atr, lookback=50)
             
-            # Tentukan jarak TP (Target RR kurang lebih 1:2.5 hingga 1:3.5)
-            raw_tp_dist = effective_risk * 3.0
-            effective_tp_dist = max(min_tp, min(raw_tp_dist, max_tp))
-            
-            # Update harga TP
             if is_bullish:
+                sl_target_from_swing = swing_point - (1.0 * atr)
+                sl_distance = entry_target - sl_target_from_swing
+                
+                # Apply minimum floor
+                if sl_distance < min_sl_floor:
+                    sl_target = entry_target - min_sl_floor
+                else:
+                    sl_target = sl_target_from_swing
+                    
                 tp_target = entry_target + effective_tp_dist
             else:
+                sl_target_from_swing = swing_point + (1.0 * atr)
+                sl_distance = sl_target_from_swing - entry_target
+                
+                # Apply minimum floor
+                if sl_distance < min_sl_floor:
+                    sl_target = entry_target + min_sl_floor
+                else:
+                    sl_target = sl_target_from_swing
+                    
                 tp_target = entry_target - effective_tp_dist
                 
             # --- LLM APPROVAL PHASE ---
@@ -448,7 +490,8 @@ JSON Format to Return:
                 "lot_size": lot_size,
                 "reasons": reasons,
                 "status": "PENDING",
-                "grade": setup_grade
+                "grade": setup_grade,
+                "atr": atr
             }
             
             self.active_signals[symbol] = signal

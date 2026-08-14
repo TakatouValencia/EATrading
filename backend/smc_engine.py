@@ -1,7 +1,7 @@
 from typing import Dict, List, Optional
 
 class SMCEngine:
-    def __init__(self, data: List[Dict], swing_length: int = 2):
+    def __init__(self, data: List[Dict], swing_length: int = 5):
         """
         Initialize the SMC Engine with historical OHLCV data.
         data must be a list of dictionaries with keys: ['timestamp', 'open', 'high', 'low', 'close', 'volume']
@@ -182,14 +182,32 @@ class SMCEngine:
                         break
                 
                 if ob_candle is not None:
-                    obs.append({
-                        "type": "OB_BULLISH",
-                        "top": self.data[ob_candle]['open'], 
-                        "bottom": self.data[ob_candle]['low'],
-                        "timestamp": self.data[ob_candle]['timestamp'],
-                        "index": ob_candle,
-                        "mitigated": False
-                    })
+                    # Filter: Displacement Strength
+                    avg_range = 0
+                    count = 0
+                    for j in range(max(0, ob_candle - 20), ob_candle):
+                        avg_range += (self.data[j]['high'] - self.data[j]['low'])
+                        count += 1
+                    if count > 0:
+                        avg_range /= count
+                        
+                    # Find max displacement body after OB
+                    max_displacement = 0
+                    for j in range(ob_candle + 1, min(break_idx + 2, len(self.data))):
+                        body = abs(self.data[j]['close'] - self.data[j]['open'])
+                        if body > max_displacement:
+                            max_displacement = body
+                            
+                    # Only add if followed by impulsive move
+                    if count == 0 or max_displacement >= 1.5 * avg_range:
+                        obs.append({
+                            "type": "OB_BULLISH",
+                            "top": self.data[ob_candle]['open'], 
+                            "bottom": self.data[ob_candle]['low'],
+                            "timestamp": self.data[ob_candle]['timestamp'],
+                            "index": ob_candle,
+                            "mitigated": False
+                        })
                     
             elif "BEARISH" in event['type']:
                 search_start = max(0, swing_idx - 10)
@@ -208,15 +226,31 @@ class SMCEngine:
                         break
                         
                 if ob_candle is not None:
-                    obs.append({
-                        "type": "OB_BEARISH",
-                        "top": self.data[ob_candle]['high'],
-                        "bottom": self.data[ob_candle]['open'], 
-                        "timestamp": self.data[ob_candle]['timestamp'],
-                        "index": ob_candle,
-                        "mitigated": False
-                    })
-                    
+                    # Filter: Displacement Strength
+                    avg_range = 0
+                    count = 0
+                    for j in range(max(0, ob_candle - 20), ob_candle):
+                        avg_range += (self.data[j]['high'] - self.data[j]['low'])
+                        count += 1
+                    if count > 0:
+                        avg_range /= count
+                        
+                    # Find max displacement body after OB
+                    max_displacement = 0
+                    for j in range(ob_candle + 1, min(break_idx + 2, len(self.data))):
+                        body = abs(self.data[j]['close'] - self.data[j]['open'])
+                        if body > max_displacement:
+                            max_displacement = body
+                            
+                    if count == 0 or max_displacement >= 1.5 * avg_range:
+                        obs.append({
+                            "type": "OB_BEARISH",
+                            "top": self.data[ob_candle]['high'],
+                            "bottom": self.data[ob_candle]['open'],
+                            "timestamp": self.data[ob_candle]['timestamp'],
+                            "index": ob_candle,
+                            "mitigated": False
+                        })
         # Relaxed mitigation/invalidation check for Order Blocks
         for ob in obs:
             idx = ob['index']
@@ -699,3 +733,89 @@ class SMCEngine:
                 pass
                 
         return amd_setups
+        
+    def calculate_atr(self, period: int = 14) -> float:
+        """Calculate Average True Range (ATR) for the latest data."""
+        if len(self.data) < period + 1:
+            return 0.5  # Fallback default value if not enough data
+            
+        true_ranges = []
+        # Calculate TR for the last `period` candles
+        for i in range(len(self.data) - period, len(self.data)):
+            current = self.data[i]
+            previous = self.data[i-1]
+            
+            high_low = current['high'] - current['low']
+            high_close = abs(current['high'] - previous['close'])
+            low_close = abs(current['low'] - previous['close'])
+            
+            tr = max(high_low, high_close, low_close)
+            true_ranges.append(tr)
+            
+        atr = sum(true_ranges) / period
+        return atr
+
+    def detect_reversal_patterns(self) -> List[str]:
+        if len(self.data) < 3:
+            return []
+            
+        current = self.data[-1]
+        previous = self.data[-2]
+        patterns = []
+        
+        # Engulfing (Bullish & Bearish)
+        prev_body = abs(previous['close'] - previous['open'])
+        curr_body = abs(current['close'] - current['open'])
+        
+        if previous['close'] < previous['open'] and current['close'] > current['open']:
+            if curr_body > prev_body and current['close'] > previous['open']:
+                patterns.append("BULLISH_ENGULFING")
+                
+        if previous['close'] > previous['open'] and current['close'] < current['open']:
+            if curr_body > prev_body and current['close'] < previous['open']:
+                patterns.append("BEARISH_ENGULFING")
+                
+        # Pin Bar (Hammer / Shooting Star)
+        curr_range = current['high'] - current['low']
+        if curr_range > 0:
+            upper_wick = current['high'] - max(current['open'], current['close'])
+            lower_wick = min(current['open'], current['close']) - current['low']
+            
+            # Long lower wick = Bullish Pin Bar
+            if lower_wick > curr_body * 2 and upper_wick < curr_body:
+                patterns.append("BULLISH_PINBAR")
+                
+            # Long upper wick = Bearish Pin Bar
+            if upper_wick > curr_body * 2 and lower_wick < curr_body:
+                patterns.append("BEARISH_PINBAR")
+                
+        return patterns
+
+    def get_recent_swing(self, is_bullish: bool, current_price: float, atr: float, lookback: int = 50) -> float:
+        """
+        Finds the most recent *significant* swing point to be used as SL basis.
+        A swing is significant if its distance from the current price is >= 1.0 * ATR.
+        """
+        if len(self.data) == 0:
+            return current_price
+            
+        start_idx = max(0, len(self.data) - lookback)
+        search_space = self.data[start_idx:]
+        
+        # Loop backwards
+        for i in range(len(search_space) - 1, -1, -1):
+            candle = search_space[i]
+            if is_bullish and candle.get('swing_low', False):
+                dist = current_price - candle['low']
+                if dist >= atr:
+                    return candle['low']
+            elif not is_bullish and candle.get('swing_high', False):
+                dist = candle['high'] - current_price
+                if dist >= atr:
+                    return candle['high']
+                    
+        # Fallback if no significant swing found within lookback
+        if is_bullish:
+            return min([c['low'] for c in search_space])
+        else:
+            return max([c['high'] for c in search_space])

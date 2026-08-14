@@ -47,6 +47,12 @@ class TradeManager:
 
     def add_trade(self, signal: Dict):
         # Instead of reloading from DB, append directly to prevent state wipe on DB lock
+        if signal['type'] in ["BUY", "SELL"] and signal['status'] == 'PENDING':
+            signal['status'] = 'ACTIVE'
+            from datetime import datetime
+            signal['entry_timestamp'] = datetime.now().isoformat()
+            signal['partial_taken'] = False
+            
         if signal not in self.tracked_trades:
             self.tracked_trades.append(signal)
 
@@ -168,18 +174,21 @@ class TradeManager:
                 except Exception as e:
                     print(f"Error checking time-based exit: {e}")
 
-                # Check for Smart Scaling Out (1R)
+                atr = float(trade.get('atr', abs(entry - sl) / 1.5)) # fallback to inferred ATR
+                
+                # Check for Smart Scaling Out (0.5 ATR partial) and BE move (0.5 ATR)
                 if not trade.get('partial_taken', False):
-                    one_r_dist = abs(entry - sl)
-                    reached_1r = False
-                    if is_buy and price >= (entry + one_r_dist):
-                        reached_1r = True
-                    elif not is_buy and price <= (entry - one_r_dist):
-                        reached_1r = True
+                    target_dist = 0.5 * atr
+                    reached_partial = False
+                    if is_buy and price >= (entry + target_dist):
+                        reached_partial = True
+                    elif not is_buy and price <= (entry - target_dist):
+                        reached_partial = True
                         
-                    if reached_1r:
-                        print(f"[{symbol}] 1R Reached! Taking 50% partial profit and moving SL to Break Even.")
+                    if reached_partial:
+                        print(f"[{symbol}] 0.5 ATR Reached! Taking partial profit and moving SL to BE.")
                         trade['partial_taken'] = True
+                        trade['be_moved'] = True
                         if 'sl_price' in trade:
                             trade['sl_price'] = entry
                         else:
@@ -204,13 +213,18 @@ class TradeManager:
                         lost = True
                         
                 if won or lost:
-                    new_status = 'WIN' if won else 'LOSS'
-                    trade['status'] = new_status
-                    
                     if won:
+                        new_status = 'WIN'
                         pnl = 2.0 if trade.get('partial_taken') else 3.0
                     else:
-                        pnl = 0.5 if trade.get('partial_taken') else -1.0
+                        if trade.get('partial_taken'):
+                            new_status = 'PARTIAL_WIN'
+                            pnl = 0.5
+                        else:
+                            new_status = 'LOSS'
+                            pnl = -1.0
+                            
+                    trade['status'] = new_status
                     
                     self._update_stats(won, pnl)
                     

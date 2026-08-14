@@ -90,12 +90,22 @@ async def run_smc_analysis(tick: dict):
                 
             if symbol not in app.state.market_data:
                 # Fetch initial historical data
-                df_ltf = data_provider.get_historical_data(symbol, interval="5min")
-                df_htf = data_provider.get_historical_data(symbol, interval="1h")
-                app.state.market_data[symbol] = {"ltf": df_ltf, "htf": df_htf}
+                df_h4 = data_provider.get_historical_data(symbol, interval="4h")
+                df_h1 = data_provider.get_historical_data(symbol, interval="1h")
+                df_htf = data_provider.get_historical_data(symbol, interval="15min")
+                df_ltf = data_provider.get_historical_data(symbol, interval="1min")
+                
+                if not df_htf or not df_ltf or not df_h1 or not df_h4:
+                    print(f"[{symbol}] Failed to fetch initial data.")
+                    return
+                    
+                print(f"[{symbol}] Got {len(df_h4)} H4, {len(df_h1)} H1, {len(df_htf)} M15, {len(df_ltf)} M1 candles.")
+                app.state.market_data[symbol] = {"ltf": df_ltf, "htf": df_htf, "h1": df_h1, "h4": df_h4}
             else:
                 df_ltf = app.state.market_data[symbol]["ltf"]
                 df_htf = app.state.market_data[symbol]["htf"]
+                df_h1 = app.state.market_data[symbol]["h1"]
+                df_h4 = app.state.market_data[symbol]["h4"]
                 
                 # Proper tick to candle aggregation logic
                 tick_time = tick.get('timestamp')
@@ -111,7 +121,7 @@ async def run_smc_analysis(tick: dict):
                 else:
                     tick_time_obj = tick_time if hasattr(tick_time, 'minute') else datetime.now()
                     
-                # --- Update LTF (5min) ---
+                # --- Update LTF (1min) ---
                 if df_ltf:
                     last_ltf = df_ltf[-1]
                     last_ltf_time = last_ltf['timestamp']
@@ -125,7 +135,7 @@ async def run_smc_analysis(tick: dict):
                         
                     time_diff_ltf = (tick_time_obj.replace(tzinfo=None) - last_ltf_time_obj.replace(tzinfo=None)).total_seconds()
                     
-                    if 0 <= time_diff_ltf < 300: # Within 5 minutes
+                    if 0 <= time_diff_ltf < 60: # Within 1 minute
                         last_ltf['close'] = tick_price
                         last_ltf['high'] = max(last_ltf['high'], tick_price)
                         last_ltf['low'] = min(last_ltf['low'], tick_price)
@@ -137,7 +147,7 @@ async def run_smc_analysis(tick: dict):
                         df_ltf.append(new_candle)
                         if len(df_ltf) > 1000: df_ltf.pop(0)
 
-                # --- Update HTF (1h) ---
+                # --- Update HTF (15m) ---
                 if df_htf:
                     last_htf = df_htf[-1]
                     last_htf_time = last_htf['timestamp']
@@ -151,7 +161,7 @@ async def run_smc_analysis(tick: dict):
                         
                     time_diff_htf = (tick_time_obj.replace(tzinfo=None) - last_htf_time_obj.replace(tzinfo=None)).total_seconds()
                     
-                    if 0 <= time_diff_htf < 3600: # Within 1 hour
+                    if 0 <= time_diff_htf < 900: # Within 15 minutes
                         last_htf['close'] = tick_price
                         last_htf['high'] = max(last_htf['high'], tick_price)
                         last_htf['low'] = min(last_htf['low'], tick_price)
@@ -193,7 +203,7 @@ async def run_smc_analysis(tick: dict):
             dxy_trend = None
             if "XAU" in symbol:
                 if "DXY" not in app.state.market_data:
-                    df_dxy = data_provider.get_historical_data("DXY", interval="1h")
+                    df_dxy = data_provider.get_historical_data("DXY", interval="15min")
                     if df_dxy:
                         app.state.market_data["DXY"] = df_dxy
                 
@@ -208,6 +218,23 @@ async def run_smc_analysis(tick: dict):
             # We want to focus on 1 signal at a time.
             signal = None
             if not trade_manager.has_active_trade(symbol):
+                # Run SMC Engine on H4
+                h4_trend = None
+                if df_h4:
+                    h4_events = SMCEngine(df_h4).detect_bos_choch()
+                    if h4_events:
+                        h4_trend = "BULLISH" if "BULLISH" in h4_events[-1]['type'] else "BEARISH"
+                        
+                # Run SMC Engine on H1
+                h1_trend = None
+                if df_h1:
+                    h1_events = SMCEngine(df_h1).detect_bos_choch()
+                    if h1_events:
+                        h1_trend = "BULLISH" if "BULLISH" in h1_events[-1]['type'] else "BEARISH"
+
+                atr = engine_ltf.calculate_atr(period=14)
+                reversal_patterns = engine_ltf.detect_reversal_patterns()
+                
                 # Now evaluate_confluence is async (calls Gemini LLM)
                 signal = await signal_generator.evaluate_confluence(
                     symbol=symbol,
@@ -217,6 +244,8 @@ async def run_smc_analysis(tick: dict):
                     fvgs=fvgs,
                     sweeps=sweeps,
                     htf_trend=htf_trend,
+                    h1_trend=h1_trend,
+                    h4_trend=h4_trend,
                     snr_zones=snr_zones,
                     snd_zones=snd_zones,
                     pd_zones=pd_zones,
@@ -225,7 +254,9 @@ async def run_smc_analysis(tick: dict):
                     fibo_ote=fibo_ote,
                     poc_price=poc_price,
                     trade_manager=trade_manager,
-                    amd_setups=amd_setups
+                    amd_setups=amd_setups,
+                    atr=atr,
+                    reversal_patterns=reversal_patterns
                 )
             
         # Outside the lock - Broadcast to clients
