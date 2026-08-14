@@ -17,8 +17,8 @@ async def run_backtest():
     db = DummyDB()
     tm = TradeManager(db)
     backtest_stats = {
-        "IS": {"WIN": 0, "LOSS": 0, "PARTIAL_WIN": 0, "pnl": 0.0, "current_consec_loss": 0, "max_consec_loss": 0, "peak_pnl": 0.0, "max_drawdown": 0.0},
-        "OOS": {"WIN": 0, "LOSS": 0, "PARTIAL_WIN": 0, "pnl": 0.0, "current_consec_loss": 0, "max_consec_loss": 0, "peak_pnl": 0.0, "max_drawdown": 0.0}
+        "IS": {"WIN": 0, "LOSS": 0, "PARTIAL_WIN": 0, "pnl": 0.0, "current_consec_loss": 0, "max_consec_loss": 0, "peak_pnl": 0.0, "max_drawdown": 0.0, "distribution": {"+3R (Full Win)": 0, "+2R (Win after Partial)": 0, "+0.5R (Partial BE/Time)": 0, "-0.5R (Time Loss)": 0, "-1R (Full Loss)": 0}},
+        "OOS": {"WIN": 0, "LOSS": 0, "PARTIAL_WIN": 0, "pnl": 0.0, "current_consec_loss": 0, "max_consec_loss": 0, "peak_pnl": 0.0, "max_drawdown": 0.0, "distribution": {"+3R (Full Win)": 0, "+2R (Win after Partial)": 0, "+0.5R (Partial BE/Time)": 0, "-0.5R (Time Loss)": 0, "-1R (Full Loss)": 0}}
     }
     
     def on_close(trade, status, pnl):
@@ -26,6 +26,18 @@ async def run_backtest():
         stats = backtest_stats[phase]
         stats[status] = stats.get(status, 0) + 1
         stats["pnl"] += pnl
+        
+        # Track distribution
+        if pnl >= 2.5:
+            stats["distribution"]["+3R (Full Win)"] += 1
+        elif pnl >= 1.5:
+            stats["distribution"]["+2R (Win after Partial)"] += 1
+        elif pnl > 0:
+            stats["distribution"]["+0.5R (Partial BE/Time)"] += 1
+        elif pnl > -0.8:
+            stats["distribution"]["-0.5R (Time Loss)"] += 1
+        else:
+            stats["distribution"]["-1R (Full Loss)"] += 1
         
         # Track consecutive losses
         if status == "LOSS":
@@ -213,6 +225,11 @@ async def run_backtest():
         print(f"Total PNL (Estimasi RR) : {backtest_stats[phase_key]['pnl']:.2f} R")
         print(f"Max Consecutive Loss    : {backtest_stats[phase_key]['max_consec_loss']}")
         print(f"Max Drawdown            : {backtest_stats[phase_key]['max_drawdown']:.2f} R")
+        
+        print(f"\nDistribusi PnL per Trade:")
+        dist = backtest_stats[phase_key]['distribution']
+        for key, val in dist.items():
+            print(f"  {key}: {val} trades")
 
     print_stats("IN-SAMPLE (Bulan 1)", "IS", total_signals_in)
     print_stats("OUT-OF-SAMPLE (Bulan 2)", "OOS", total_signals_out)
