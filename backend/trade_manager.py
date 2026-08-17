@@ -198,9 +198,9 @@ class TradeManager:
 
                 atr = float(trade.get('atr', abs(entry - sl) / 1.5)) # fallback to inferred ATR
                 
-                # Check for Smart Scaling Out (0.5 ATR partial) and BE move (0.5 ATR)
+                # Check for Smart Scaling Out (1.0 ATR partial) and BE move
                 if not trade.get('partial_taken', False):
-                    target_dist = 0.5 * atr
+                    target_dist = 1.0 * atr
                     reached_partial = False
                     if is_buy and price >= (entry + target_dist):
                         reached_partial = True
@@ -208,16 +208,13 @@ class TradeManager:
                         reached_partial = True
                         
                     if reached_partial:
-                        print(f"[{symbol}] 0.5 ATR Reached! Taking partial profit and moving SL to BE.")
+                        print(f"[{symbol}] 1.0 ATR Reached! Taking partial profit and moving SL to BE.")
                         trade['partial_taken'] = True
                         trade['be_moved'] = True
-                        if 'sl_price' in trade:
-                            trade['sl_price'] = entry
-                        else:
-                            trade['sl'] = entry
+                        trade['current_sl'] = entry
 
                 # Re-read SL because it might have been updated to BE
-                current_sl = float(trade.get('sl_price', trade.get('sl')))
+                current_sl = float(trade.get('current_sl', trade.get('sl_price', trade.get('sl'))))
 
                 # Check for TP / SL
                 won = False

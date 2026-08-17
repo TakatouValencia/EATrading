@@ -134,9 +134,21 @@ async def run_backtest():
             total_signals += 1
             
         for step_candle in df_ltf[i:min(i+5, len(df_ltf))]:
-            await tm.process_tick({'symbol': symbol, 'price': step_candle['low']})
-            await tm.process_tick({'symbol': symbol, 'price': step_candle['high']})
-            await tm.process_tick({'symbol': symbol, 'price': step_candle['close']})
+            o = step_candle['open']
+            h = step_candle['high']
+            l = step_candle['low']
+            c = step_candle['close']
+            
+            await tm.process_tick({'symbol': symbol, 'price': o})
+            if c >= o:
+                # Bullish: Open -> Low -> High -> Close
+                await tm.process_tick({'symbol': symbol, 'price': l})
+                await tm.process_tick({'symbol': symbol, 'price': h})
+            else:
+                # Bearish: Open -> High -> Low -> Close
+                await tm.process_tick({'symbol': symbol, 'price': h})
+                await tm.process_tick({'symbol': symbol, 'price': l})
+            await tm.process_tick({'symbol': symbol, 'price': c})
 
     print("\n" + "="*50)
     print("HASIL BACKTEST (XAU/USD - Multi-Timeframe M1, M15, H1, H4)")
@@ -145,11 +157,13 @@ async def run_backtest():
     
     win = backtest_stats["WIN"] + backtest_stats["PARTIAL_WIN"]
     loss = backtest_stats["LOSS"]
+    open_trades = len([t for t in tm.tracked_trades if t['status'] in ('PENDING', 'ACTIVE')])
     
     total_closed = win + loss
     
     print(f"Wins (termasuk Partial) : {win}")
     print(f"Losses murni            : {loss}")
+    print(f"Floating / Open         : {open_trades}")
     
     if total_closed > 0:
         wr = (win / total_closed) * 100
