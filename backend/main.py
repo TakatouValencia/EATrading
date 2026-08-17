@@ -176,13 +176,14 @@ async def run_smc_analysis(tick: dict):
             # Run SMC Engine on LTF
             engine_ltf = SMCEngine(df_ltf)
             events = engine_ltf.detect_bos_choch()
-            fvgs = engine_ltf.detect_fvg()
-            obs = engine_ltf.detect_order_blocks(events)
+            # We don't use LTF FVG/OB for entry zones anymore, only HTF
+            fvgs = []
+            obs = []
             sweeps = engine_ltf.detect_liquidity_sweeps()
             snr_zones = engine_ltf.detect_support_resistance()
             snd_zones = engine_ltf.detect_supply_demand()
             pd_zones = engine_ltf.detect_premium_discount()
-            breakers = engine_ltf.detect_breaker_blocks(events)
+            breakers = [] # Moved to HTF
             fibo_ote = engine_ltf.detect_fibo_ote()
             poc_price = engine_ltf.calculate_volume_profile(lookback=100)
             amd_setups = engine_ltf.detect_amd()
@@ -227,8 +228,14 @@ async def run_smc_analysis(tick: dict):
                         
                 # Run SMC Engine on H1
                 h1_trend = None
+                htf_obs = []
+                htf_fvgs = []
                 if df_h1:
-                    h1_events = SMCEngine(df_h1).detect_bos_choch()
+                    h1_engine = SMCEngine(df_h1)
+                    h1_events = h1_engine.detect_bos_choch()
+                    htf_fvgs = h1_engine.detect_fvg()
+                    htf_obs = h1_engine.detect_order_blocks(h1_events)
+                    htf_breakers = h1_engine.detect_breaker_blocks(h1_events)
                     if h1_events:
                         h1_trend = "BULLISH" if "BULLISH" in h1_events[-1]['type'] else "BEARISH"
 
@@ -240,8 +247,8 @@ async def run_smc_analysis(tick: dict):
                     symbol=symbol,
                     current_price=tick['price'],
                     events=events,
-                    obs=obs,
-                    fvgs=fvgs,
+                    obs=htf_obs,
+                    fvgs=htf_fvgs,
                     sweeps=sweeps,
                     htf_trend=htf_trend,
                     h1_trend=h1_trend,
@@ -249,7 +256,7 @@ async def run_smc_analysis(tick: dict):
                     snr_zones=snr_zones,
                     snd_zones=snd_zones,
                     pd_zones=pd_zones,
-                    breakers=breakers,
+                    breakers=htf_breakers,
                     dxy_trend=dxy_trend,
                     fibo_ote=fibo_ote,
                     poc_price=poc_price,
@@ -264,6 +271,57 @@ async def run_smc_analysis(tick: dict):
             "type": "TICK",
             "data": tick
         }
+        
+        # Calculate freshness for tracked trades
+        active_trades_data = []
+        for t in trade_manager.tracked_trades:
+            t_copy = t.copy()
+            entry = float(t_copy.get('entry_price', t_copy.get('entry', 0)))
+            sl = float(t_copy.get('sl_price', t_copy.get('sl', 0)))
+            ts = t_copy.get('timestamp')
+            
+            # calculate age
+            age_minutes = 0
+            if ts:
+                try:
+                    ts_obj = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                    now_tz = datetime.now(ts_obj.tzinfo)
+                    age_minutes = int((now_tz - ts_obj).total_seconds() / 60)
+                except Exception as e:
+                    pass
+            t_copy['age_minutes'] = age_minutes
+            
+            # calculate freshness
+            freshness = "FRESH"
+            if t_copy['status'] == 'PENDING':
+                if age_minutes > 5:
+                    freshness = "VALID"
+                
+                dist_to_sl = abs(entry - sl)
+                current_price = tick['price']
+                
+                # Check distance towards SL
+                if dist_to_sl > 0:
+                    if "BUY" in t_copy['type']:
+                        if current_price < entry:
+                            moved_pct = (entry - current_price) / dist_to_sl
+                            if moved_pct >= 0.5:
+                                freshness = "INVALID"
+                            else:
+                                freshness = "VALID"
+                    else:
+                        if current_price > entry:
+                            moved_pct = (current_price - entry) / dist_to_sl
+                            if moved_pct >= 0.5:
+                                freshness = "INVALID"
+                            else:
+                                freshness = "VALID"
+                                
+            t_copy['freshness_status'] = freshness
+            active_trades_data.append(t_copy)
+            
+        payload['active_trades'] = active_trades_data
+
         
         if signal:
             # Check if it's identical to an existing pending signal to avoid spam

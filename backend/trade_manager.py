@@ -111,7 +111,8 @@ class TradeManager:
                         ts_obj = datetime.fromisoformat(ts.replace('Z', '+00:00'))
                         # Use naive datetime for comparison if ts_obj is naive, else aware
                         now = datetime.now(ts_obj.tzinfo)
-                        if now - ts_obj > timedelta(hours=12):
+                        if now - ts_obj > timedelta(minutes=15):
+                            print(f"[{symbol}] PENDING trade expired (> 15 mins). Cancelling.")
                             trade['status'] = 'CANCELLED'
                             if trade_id:
                                 self.db.update_signal_status(trade_id, 'CANCELLED')
@@ -127,6 +128,27 @@ class TradeManager:
                             continue
                 except Exception as e:
                     print(f"Error checking expiration: {e}")
+
+                # Check for Missed Trade (price hits TP before Entry)
+                missed = False
+                if is_buy and price >= tp:
+                    missed = True
+                elif not is_buy and price <= tp:
+                    missed = True
+                    
+                if missed:
+                    print(f"[{symbol}] PENDING trade missed (hit TP before Entry). Cancelling.")
+                    trade['status'] = 'CANCELLED'
+                    if trade_id:
+                        self.db.update_signal_status(trade_id, 'CANCELLED')
+                    self.tracked_trades.remove(trade)
+                    if self.on_trade_closed:
+                        import asyncio
+                        if asyncio.iscoroutinefunction(self.on_trade_closed):
+                            await self.on_trade_closed(trade, 'CANCELLED', 0)
+                        else:
+                            self.on_trade_closed(trade, 'CANCELLED', 0)
+                    continue
 
                 # Check for entry trigger
                 triggered = False

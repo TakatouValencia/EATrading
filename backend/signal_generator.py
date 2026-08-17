@@ -6,7 +6,7 @@ from risk_calculator import calculate_pips, calculate_lot_size
 import settings_manager
 
 class SignalGenerator:
-    def __init__(self, cooldown_minutes: int = 15):
+    def __init__(self, cooldown_minutes: int = 120):
         self.active_signals = {}  # symbol -> signal_dict
         self.cooldowns = {}       # symbol -> expiration_time
         self.cooldown_minutes = cooldown_minutes
@@ -185,68 +185,79 @@ class SignalGenerator:
                         reasons.append("IDM Swept")
                     break
 
-        # Criterion 2: Fair Value Gap (FVG) - More aggressive entry
+        # Criterion 2: Fair Value Gap (FVG) - HTF Zone Check
         valid_fvg = None
         for fvg in reversed(fvgs):
             if is_bullish and fvg['type'] == "FVG_BULLISH" and not fvg['mitigated']:
-                valid_fvg = fvg
-                confluence_score += 1
-                reasons.append("Unmitigated Bullish FVG")
-                # Enter at the top of the FVG for more frequent fills
-                if not entry_target: 
-                    entry_target = fvg['top']
-                    sl_target = fvg['bottom'] - buffer_dist
-                break
+                # Ensure price is INSIDE the HTF zone
+                if fvg['bottom'] <= current_price <= fvg['top']:
+                    print(f"[{symbol}] WATCHING: Price inside HTF Bullish FVG ({fvg['bottom']} - {fvg['top']})")
+                    valid_fvg = fvg
+                    confluence_score += 1
+                    reasons.append("Inside HTF Bullish FVG")
+                    if not entry_target: 
+                        entry_target = current_price
+                        sl_target = fvg['bottom'] - buffer_dist
+                    break
             elif not is_bullish and fvg['type'] == "FVG_BEARISH" and not fvg['mitigated']:
-                valid_fvg = fvg
-                confluence_score += 1
-                reasons.append("Unmitigated Bearish FVG")
-                if not entry_target:
-                    entry_target = fvg['bottom']
-                    sl_target = fvg['top'] + buffer_dist
-                break
+                if fvg['bottom'] <= current_price <= fvg['top']:
+                    print(f"[{symbol}] WATCHING: Price inside HTF Bearish FVG ({fvg['bottom']} - {fvg['top']})")
+                    valid_fvg = fvg
+                    confluence_score += 1
+                    reasons.append("Inside HTF Bearish FVG")
+                    if not entry_target:
+                        entry_target = current_price
+                        sl_target = fvg['top'] + buffer_dist
+                    break
 
-        # Criterion 3: Order Block proximity / Valid OB (Stronger than FVG alone)
+        # Criterion 3: Order Block (OB) - HTF Zone Check
         valid_ob = None
         for ob in reversed(obs):
             if is_bullish and ob['type'] == "OB_BULLISH" and not ob['mitigated']:
-                valid_ob = ob
-                confluence_score += 1
-                reasons.append("Valid Bullish OB")
-                # Overwrite FVG entry if OB exists, or use OB as secondary confirmation
-                if not entry_target:
-                    entry_target = ob['top']
-                    sl_target = ob['bottom'] - buffer_dist
-                break
+                if ob['bottom'] <= current_price <= ob['top']:
+                    print(f"[{symbol}] WATCHING: Price inside HTF Bullish OB ({ob['bottom']} - {ob['top']})")
+                    valid_ob = ob
+                    confluence_score += 2
+                    reasons.append("Inside HTF Bullish OB")
+                    if not entry_target:
+                        entry_target = current_price
+                        sl_target = ob['bottom'] - buffer_dist
+                    break
             elif not is_bullish and ob['type'] == "OB_BEARISH" and not ob['mitigated']:
-                valid_ob = ob
-                confluence_score += 1
-                reasons.append("Valid Bearish OB")
-                if not entry_target:
-                    entry_target = ob['bottom']
-                    sl_target = ob['top'] + buffer_dist
-                break
+                if ob['bottom'] <= current_price <= ob['top']:
+                    print(f"[{symbol}] WATCHING: Price inside HTF Bearish OB ({ob['bottom']} - {ob['top']})")
+                    valid_ob = ob
+                    confluence_score += 2
+                    reasons.append("Inside HTF Bearish OB")
+                    if not entry_target:
+                        entry_target = current_price
+                        sl_target = ob['top'] + buffer_dist
+                    break
 
-        # Criterion 4: Breaker Blocks (ICT)
+        # Criterion 4: Breaker Blocks (ICT) - HTF Zone Check
         valid_breaker = None
         if breakers:
             for brk in reversed(breakers):
                 if is_bullish and brk['type'] == "BREAKER_BULLISH":
-                    valid_breaker = brk
-                    confluence_score += 2
-                    reasons.append("Bullish Breaker Block")
-                    if not entry_target:
-                        entry_target = brk['top']
-                        sl_target = brk['bottom'] - buffer_dist
-                    break
+                    if brk['bottom'] <= current_price <= brk['top']:
+                        print(f"[{symbol}] WATCHING: Price inside HTF Bullish Breaker ({brk['bottom']} - {brk['top']})")
+                        valid_breaker = brk
+                        confluence_score += 2
+                        reasons.append("Inside HTF Bullish Breaker")
+                        if not entry_target:
+                            entry_target = current_price
+                            sl_target = brk['bottom'] - buffer_dist
+                        break
                 elif not is_bullish and brk['type'] == "BREAKER_BEARISH":
-                    valid_breaker = brk
-                    confluence_score += 2
-                    reasons.append("Bearish Breaker Block")
-                    if not entry_target:
-                        entry_target = brk['bottom']
-                        sl_target = brk['top'] + buffer_dist
-                    break
+                    if brk['bottom'] <= current_price <= brk['top']:
+                        print(f"[{symbol}] WATCHING: Price inside HTF Bearish Breaker ({brk['bottom']} - {brk['top']})")
+                        valid_breaker = brk
+                        confluence_score += 2
+                        reasons.append("Inside HTF Bearish Breaker")
+                        if not entry_target:
+                            entry_target = current_price
+                            sl_target = brk['top'] + buffer_dist
+                        break
 
         # Criterion 5 & 6: Support/Resistance (MNSR) & Supply/Demand (Minor confluences)
         valid_snr = False
