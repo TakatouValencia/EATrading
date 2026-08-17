@@ -259,11 +259,13 @@ class SignalGenerator:
                             sl_target = brk['top'] + buffer_dist
                         break
 
-        # Criterion 5 & 6: Support/Resistance (MNSR) & Supply/Demand (Minor confluences)
         valid_snr = False
         if snr_zones:
             for snr in snr_zones:
-                if is_bullish and snr['type'] == "SUPPORT" and abs(current_price - snr['level']) / current_price < 0.002:
+                snr_level = snr.get('level')
+                if snr_level is None: continue
+                
+                if is_bullish and snr['type'] == "SUPPORT" and abs(current_price - snr_level) / current_price < 0.002:
                     valid_snr = True
                     if snr.get('is_mnsr'):
                         confluence_score += 2
@@ -272,7 +274,7 @@ class SignalGenerator:
                         confluence_score += 1
                         reasons.append(f"{snr['strength']} Support")
                     break
-                elif not is_bullish and snr['type'] == "RESISTANCE" and abs(current_price - snr['level']) / current_price < 0.002:
+                elif not is_bullish and snr['type'] == "RESISTANCE" and abs(current_price - snr_level) / current_price < 0.002:
                     valid_snr = True
                     if snr.get('is_mnsr'):
                         confluence_score += 2
