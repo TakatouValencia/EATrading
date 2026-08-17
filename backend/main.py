@@ -264,7 +264,8 @@ async def run_smc_analysis(tick: dict):
                     trade_manager=trade_manager,
                     amd_setups=amd_setups,
                     atr=atr,
-                    reversal_patterns=reversal_patterns
+                    reversal_patterns=reversal_patterns,
+                    engine_ltf=engine_ltf
                 )
             
         # Outside the lock - Broadcast to clients
