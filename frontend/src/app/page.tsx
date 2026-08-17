@@ -28,6 +28,12 @@ export default function Home() {
   const [toasts, setToasts] = useState<any[]>([]);
   const [filter, setFilter] = useState("All");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [currentTime, setCurrentTime] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(Date.now()), 60000);
+    return () => clearInterval(timer);
+  }, []);
 
   const saveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -311,6 +317,24 @@ export default function Home() {
                           if (statusText === 'HIT SL') statusColor = "bg-rose-500/20 text-rose-400";
                           if (statusText === 'OPEN') statusColor = "bg-indigo-500/20 text-indigo-400";
 
+                          const signalTime = new Date(sig.timestamp);
+                          const ageMinutes = Math.floor((currentTime - signalTime.getTime()) / 60000);
+                          
+                          let freshnessText = "";
+                          let freshnessColor = "";
+                          if (statusText === 'PENDING') {
+                            if (ageMinutes < 5) {
+                              freshnessText = "FRESH";
+                              freshnessColor = "bg-sky-500/20 text-sky-400";
+                            } else if (ageMinutes < 15) {
+                              freshnessText = "VALID";
+                              freshnessColor = "bg-blue-500/20 text-blue-400";
+                            } else {
+                              freshnessText = "EXPIRED";
+                              freshnessColor = "bg-slate-500/20 text-slate-400";
+                            }
+                          }
+
                           return (
                             <tr key={idx} className="hover:bg-slate-700/20 transition-colors">
                               <td className="p-3 whitespace-nowrap">
@@ -334,8 +358,11 @@ export default function Home() {
                                 <div className="text-right text-emerald-400 font-mono">{sig.tp.toFixed(2)}</div>
                               </td>
                               <td className="p-3 whitespace-nowrap">
-                                <div className="text-center">
+                                <div className="text-center flex flex-col items-center gap-1">
                                   <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${statusColor}`}>{statusText}</span>
+                                  {statusText === 'PENDING' && (
+                                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${freshnessColor}`}>{freshnessText} • {ageMinutes}m</span>
+                                  )}
                                 </div>
                               </td>
                               <td className="p-3 max-w-xs truncate">
