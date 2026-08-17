@@ -139,9 +139,9 @@ async def run_backtest():
             await tm.process_tick({'symbol': symbol, 'price': step_candle['close']})
 
     print("\n" + "="*50)
-    print("HASIL BACKTEST (Sampel 2000 M1 & M15 Candles)")
+    print("HASIL BACKTEST (XAU/USD - Multi-Timeframe M1, M15, H1, H4)")
     print("="*50)
-    print(f"Total Sinyal   : {total_signals}")
+    print(f"Total Sinyal            : {total_signals}")
     
     win = backtest_stats["WIN"] + backtest_stats["PARTIAL_WIN"]
     loss = backtest_stats["LOSS"]
@@ -149,7 +149,7 @@ async def run_backtest():
     total_closed = win + loss
     
     print(f"Wins (termasuk Partial) : {win}")
-    print(f"Losses                  : {loss}")
+    print(f"Losses murni            : {loss}")
     
     if total_closed > 0:
         wr = (win / total_closed) * 100
@@ -157,7 +157,8 @@ async def run_backtest():
     else:
         print("Win Rate (WR)           : 0.00% (Belum ada trade tertutup)")
         
-    print(f"Total PNL (Estimasi RR) : {backtest_stats['pnl']:.2f} R")
+    pnl_str = f"+{backtest_stats['pnl']:.2f}" if backtest_stats['pnl'] > 0 else f"{backtest_stats['pnl']:.2f}"
+    print(f"Total PNL (Estimasi RR) : {pnl_str} R")
     print("="*50)
 
 if __name__ == "__main__":
