@@ -66,8 +66,9 @@ async def handle_trade_closed(trade: dict, new_status: str, pnl: float):
         "pnl": pnl
     }
     await manager.broadcast(json.dumps(payload))
-    # Notify Discord
-    await send_discord_trade_update(trade, new_status, pnl)
+    # Notify Discord (only for WIN or LOSS, to avoid spamming CANCELLED)
+    if new_status in ["WIN", "LOSS", "PARTIAL_WIN"]:
+        await send_discord_trade_update(trade, new_status, pnl)
 
 trade_manager.on_trade_closed = handle_trade_closed
 
