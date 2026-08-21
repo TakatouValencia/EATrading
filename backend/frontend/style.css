@@ -279,6 +279,73 @@ tr:hover td {
 
 /* Responsive */
 @media (max-width: 1024px) {
-    .main-content { grid-template-columns: 1fr; }
-    .chart-container { height: 400px; }
+    .main-content {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto auto;
+    }
+    
+    .chart-container {
+        grid-column: 1;
+        grid-row: 1;
+        height: 400px;
+    }
+    
+    .active-signals {
+        grid-column: 1;
+        grid-row: 2;
+        height: 300px;
+    }
+    
+    .recent-trades {
+        grid-column: 1;
+        grid-row: 3;
+        height: 400px;
+    }
+}
+
+@media (max-width: 768px) {
+    .container {
+        padding: 1rem;
+    }
+
+    header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+        margin-bottom: 2rem;
+    }
+
+    .hero-stats {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 1rem;
+    }
+
+    .stat-card {
+        padding: 1rem;
+    }
+
+    .stat-card h2 {
+        font-size: 1.8rem;
+    }
+    
+    .chart-container {
+        height: 300px;
+        padding: 1rem;
+    }
+
+    th, td {
+        font-size: 0.75rem;
+        padding: 0.75rem 0.25rem;
+    }
+
+    .badge {
+        padding: 0.2rem 0.4rem;
+        font-size: 0.65rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .hero-stats {
+        grid-template-columns: 1fr;
+    }
 }
