@@ -173,6 +173,7 @@ header {
 .main-content {
     display: grid;
     grid-template-columns: 2fr 1fr;
+    grid-template-rows: auto auto;
     gap: 1.5rem;
 }
 
@@ -190,14 +191,29 @@ header {
 .chart-container {
     padding: 1.5rem;
     height: 500px;
+    grid-column: 1;
+    grid-row: 1 / span 2;
 }
 
-.recent-trades {
+.active-signals, .recent-trades {
     padding: 1.5rem;
-    height: 500px;
+    height: 242px;
     display: flex;
     flex-direction: column;
 }
+
+.active-signals {
+    grid-column: 2;
+    grid-row: 1;
+}
+
+.recent-trades {
+    grid-column: 2;
+    grid-row: 2;
+}
+
+.badge.pending { background: rgba(0, 168, 255, 0.1); color: var(--accent-blue); border: 1px solid rgba(0, 168, 255, 0.2); }
+.badge.active { background: rgba(255, 153, 0, 0.1); color: #ff9900; border: 1px solid rgba(255, 153, 0, 0.2); }
 
 .table-wrapper {
     flex-grow: 1;

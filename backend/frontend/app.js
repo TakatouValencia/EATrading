@@ -35,7 +35,36 @@ function updateDashboard(data) {
 
     document.getElementById('max-dd').textContent = '-' + data.summary.max_drawdown.toFixed(2) + ' R';
 
-    // Update Table
+    // Update Active Signals Table
+    const activeTbody = document.querySelector('#active-table tbody');
+    activeTbody.innerHTML = '';
+    
+    if (data.active_signals && data.active_signals.length > 0) {
+        data.active_signals.forEach(signal => {
+            const tr = document.createElement('tr');
+            
+            const dateObj = new Date(signal.time.replace('Z', '+00:00'));
+            const dateStr = dateObj.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            
+            const badgeClass = signal.status === 'PENDING' ? 'pending' : 'active';
+            
+            tr.innerHTML = `
+                <td>${dateStr}</td>
+                <td>${signal.type.split(' ')[0]}</td>
+                <td>${signal.entry.toFixed(1)}</td>
+                <td>${signal.sl.toFixed(1)}</td>
+                <td>${signal.tp.toFixed(1)}</td>
+                <td><span class="badge ${badgeClass}">${signal.status}</span></td>
+            `;
+            activeTbody.appendChild(tr);
+        });
+    } else {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td colspan="6" style="text-align:center; color: var(--text-muted)">No active or pending signals</td>`;
+        activeTbody.appendChild(tr);
+    }
+
+    // Update Recent Trades Table
     const tbody = document.querySelector('#trades-table tbody');
     tbody.innerHTML = '';
     

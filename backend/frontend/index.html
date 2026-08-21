@@ -56,9 +56,32 @@
                 <canvas id="equityChart"></canvas>
             </div>
 
+            <div class="active-signals glass">
+                <div class="section-header">
+                    <h2>Live Signals (Pending / Active)</h2>
+                </div>
+                <div class="table-wrapper">
+                    <table id="active-table">
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Type</th>
+                                <th>Entry</th>
+                                <th>SL</th>
+                                <th>TP</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Signals injected by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
             <div class="recent-trades glass">
                 <div class="section-header">
-                    <h2>Recent Signals</h2>
+                    <h2>Recent Closed Trades</h2>
                 </div>
                 <div class="table-wrapper">
                     <table id="trades-table">

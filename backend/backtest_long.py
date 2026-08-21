@@ -296,6 +296,18 @@ async def run_backtest():
             max_dd = dd
     dashboard_data["summary"]["max_drawdown"] = max_dd
     
+    # Save active signals
+    dashboard_data["active_signals"] = []
+    for trade in tm.tracked_trades:
+        dashboard_data["active_signals"].append({
+            "time": trade.get("timestamp", tm.current_time_str),
+            "type": trade.get("type", "UNKNOWN"),
+            "status": trade.get("status", "PENDING"),
+            "entry": trade.get("entry", 0),
+            "sl": trade.get("sl", 0),
+            "tp": trade.get("tp", 0)
+        })
+    
     with open("data/dashboard_data.json", "w") as f:
         json.dump(dashboard_data, f, indent=2)
     print("\n[V] Dashboard data saved to data/dashboard_data.json")
