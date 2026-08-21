@@ -815,7 +815,89 @@ class SMCEngine:
                     return candle['high']
                     
         # Fallback if no significant swing found within lookback
+        # Fallback if no significant swing found within lookback
         if is_bullish:
             return min([c['low'] for c in search_space])
         else:
             return max([c['high'] for c in search_space])
+
+    def calculate_adx(self, period: int = 14) -> float:
+        """Calculate the Average Directional Index (ADX) over the last `period` candles."""
+        if len(self.data) < period * 2 + 1:
+            return 25.0  # Fallback default
+            
+        tr_list = []
+        pdm_list = []
+        ndm_list = []
+        
+        for i in range(1, len(self.data)):
+            curr = self.data[i]
+            prev = self.data[i-1]
+            
+            tr = max(curr['high'] - curr['low'], abs(curr['high'] - prev['close']), abs(curr['low'] - prev['close']))
+            
+            up_move = curr['high'] - prev['high']
+            down_move = prev['low'] - curr['low']
+            
+            pdm = up_move if up_move > down_move and up_move > 0 else 0.0
+            ndm = down_move if down_move > up_move and down_move > 0 else 0.0
+            
+            tr_list.append(tr)
+            pdm_list.append(pdm)
+            ndm_list.append(ndm)
+            
+        # Initial smoothed values (simple average of first 'period' values)
+        smoothed_tr = sum(tr_list[:period])
+        smoothed_pdm = sum(pdm_list[:period])
+        smoothed_ndm = sum(ndm_list[:period])
+        
+        dx_list = []
+        if smoothed_tr > 0:
+            pdi = 100 * (smoothed_pdm / smoothed_tr)
+            ndi = 100 * (smoothed_ndm / smoothed_tr)
+            dx = 100 * abs(pdi - ndi) / (pdi + ndi) if (pdi + ndi) > 0 else 0.0
+            dx_list.append(dx)
+            
+        for i in range(period, len(tr_list)):
+            smoothed_tr = smoothed_tr - (smoothed_tr / period) + tr_list[i]
+            smoothed_pdm = smoothed_pdm - (smoothed_pdm / period) + pdm_list[i]
+            smoothed_ndm = smoothed_ndm - (smoothed_ndm / period) + ndm_list[i]
+            
+            if smoothed_tr > 0:
+                pdi = 100 * (smoothed_pdm / smoothed_tr)
+                ndi = 100 * (smoothed_ndm / smoothed_tr)
+                dx = 100 * abs(pdi - ndi) / (pdi + ndi) if (pdi + ndi) > 0 else 0.0
+                dx_list.append(dx)
+                
+        if len(dx_list) < period:
+            return 25.0
+            
+        # First ADX is simple average of DX
+        adx = sum(dx_list[:period]) / period
+        
+        # Smoothed ADX for the rest
+        for i in range(period, len(dx_list)):
+            adx = ((adx * (period - 1)) + dx_list[i]) / period
+            
+        return adx
+
+    def is_near_range_extreme(self, current_price: float, lookback: int = 50, edge_threshold_pct: float = 0.15) -> bool:
+        """
+        Check if the current price is within the top/bottom X% of the recent range.
+        Used to prevent buying at range highs or selling at range lows in sideways markets.
+        """
+        if len(self.data) < lookback:
+            return False
+            
+        recent_data = self.data[-lookback:]
+        highest = max([c['high'] for c in recent_data])
+        lowest = min([c['low'] for c in recent_data])
+        
+        range_size = highest - lowest
+        if range_size == 0:
+            return False
+            
+        top_boundary = highest - (range_size * edge_threshold_pct)
+        bottom_boundary = lowest + (range_size * edge_threshold_pct)
+        
+        return current_price >= top_boundary or current_price <= bottom_boundary

@@ -65,7 +65,12 @@ class DataProvider:
                 await asyncio.sleep(5)
 
     def get_historical_data(self, symbol: str, interval: str = "5min", outputsize: int = 500) -> List[Dict]:
-        """Fetch historical data via REST API."""
+        """Fetch historical data via CSV or REST API."""
+        # Check if CSV exists first
+        csv_data = self.get_historical_data_from_csv(symbol, interval, outputsize)
+        if csv_data:
+            return csv_data
+            
         if not self.api_key:
             # Return dummy data for development if no key
             return self._generate_dummy_data(symbol, interval)
@@ -183,3 +188,89 @@ class DataProvider:
             })
             current_price = close_price
         return data
+
+    def get_historical_data_from_csv(self, symbol: str, interval: str, max_records: int = None) -> List[Dict]:
+        """Fetch historical data from MT5 CSV files in the data directory."""
+        import csv
+        
+        # MT5 standard export naming convention (e.g., XAUUSD_M1.csv)
+        clean_symbol = symbol.replace("/", "")
+        
+        # Map our internal intervals to MT5 standard suffixes
+        interval_map = {
+            "1min": "M1",
+            "5min": "M5",
+            "15min": "M15",
+            "30min": "M30",
+            "1h": "H1",
+            "4h": "H4",
+            "1day": "D1"
+        }
+        
+        mt5_interval = interval_map.get(interval, interval)
+        filename = f"{clean_symbol}_{mt5_interval}.csv"
+        file_path = os.path.join(os.path.dirname(__file__), 'data', filename)
+        
+        if not os.path.exists(file_path):
+            return []
+            
+        try:
+            print(f"Loading historical data from {file_path}...")
+            data = []
+            with open(file_path, mode='r', encoding='utf-8-sig') as f:
+                reader = csv.DictReader(f)
+                
+                # Check for MT5 specific column headers vs standard OHLCV
+                # MT5 headers usually: <DATE>\t<TIME>\t<OPEN>\t<HIGH>\t<LOW>\t<CLOSE>\t<TICKVOL>\t<VOL>\t<SPREAD>
+                # Or standard CSV with commas
+                
+                # Sniff delimiter
+                f.seek(0)
+                first_line = f.readline()
+                delimiter = '\t' if '\t' in first_line else ','
+                f.seek(0)
+                reader = csv.DictReader(f, delimiter=delimiter)
+                
+                for row in reader:
+                    # Parse standard MT5 date and time format
+                    # E.g. <DATE> 2026.01.01, <TIME> 00:00:00
+                    date_key = '<DATE>' if '<DATE>' in row else 'Date' if 'Date' in row else 'time'
+                    time_key = '<TIME>' if '<TIME>' in row else 'Time' if 'Time' in row else None
+                    open_key = '<OPEN>' if '<OPEN>' in row else 'Open' if 'Open' in row else 'open'
+                    high_key = '<HIGH>' if '<HIGH>' in row else 'High' if 'High' in row else 'high'
+                    low_key = '<LOW>' if '<LOW>' in row else 'Low' if 'Low' in row else 'low'
+                    close_key = '<CLOSE>' if '<CLOSE>' in row else 'Close' if 'Close' in row else 'close'
+                    vol_key = '<TICKVOL>' if '<TICKVOL>' in row else 'Volume' if 'Volume' in row else 'volume'
+                    
+                    if date_key not in row or not row[date_key]: continue
+                    
+                    try:
+                        timestamp_str = row[date_key]
+                        if time_key and row[time_key]:
+                            timestamp_str = f"{row[date_key].replace('.', '-')}T{row[time_key]}"
+                        elif '.' in timestamp_str:
+                            timestamp_str = timestamp_str.replace('.', '-')
+                            
+                        data.append({
+                            'timestamp': timestamp_str,
+                            'open': float(row[open_key]),
+                            'high': float(row[high_key]),
+                            'low': float(row[low_key]),
+                            'close': float(row[close_key]),
+                            'volume': float(row.get(vol_key, 0))
+                        })
+                    except Exception as parse_e:
+                        continue
+            
+            # Standardize order: oldest to newest
+            if data and data[0]['timestamp'] > data[-1]['timestamp']:
+                data.reverse()
+                
+            if max_records and len(data) > max_records:
+                data = data[-max_records:]
+                
+            print(f"Loaded {len(data)} records from {filename}")
+            return data
+        except Exception as e:
+            print(f"Error reading CSV {file_path}: {e}")
+            return []

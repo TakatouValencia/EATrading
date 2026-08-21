@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SMC AI - Trading Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="background-effects">
+        <div class="glow-orb top-right"></div>
+        <div class="glow-orb bottom-left"></div>
+    </div>
+
+    <div class="container">
+        <header>
+            <div class="logo">
+                <span class="icon">✦</span>
+                <h1>SMC AI <span>Live Monitor</span></h1>
+            </div>
+            <div class="status-indicator">
+                <span class="pulse"></span> System Active (Anti-MC: ON)
+            </div>
+        </header>
+
+        <section class="hero-stats">
+            <div class="stat-card glass">
+                <h3>Total Trades</h3>
+                <h2 id="total-trades">--</h2>
+                <p>60-Day Window</p>
+            </div>
+            <div class="stat-card glass">
+                <h3>Win Rate</h3>
+                <h2 id="win-rate" class="accent-green">--%</h2>
+                <p>Strict 150 Pips TP</p>
+            </div>
+            <div class="stat-card glass">
+                <h3>Net Profit</h3>
+                <h2 id="total-pnl" class="accent-green">-- R</h2>
+                <p>1R = Risk per Trade</p>
+            </div>
+            <div class="stat-card glass warning">
+                <h3>Max Drawdown</h3>
+                <h2 id="max-dd" class="accent-red">-- R</h2>
+                <p>Daily Stop limit at -3R</p>
+            </div>
+        </section>
+
+        <section class="main-content">
+            <div class="chart-container glass">
+                <div class="section-header">
+                    <h2>Equity Curve</h2>
+                </div>
+                <canvas id="equityChart"></canvas>
+            </div>
+
+            <div class="recent-trades glass">
+                <div class="section-header">
+                    <h2>Recent Signals</h2>
+                </div>
+                <div class="table-wrapper">
+                    <table id="trades-table">
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Type</th>
+                                <th>Status</th>
+                                <th>PnL (R)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Trades injected by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

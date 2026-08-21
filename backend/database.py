@@ -35,10 +35,14 @@ class Database:
                 entry_price REAL,
                 sl_price REAL,
                 tp_price REAL,
-                reasons TEXT,
-                status TEXT,
-                created_at TEXT,
-                pnl REAL
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS blacklisted_zones (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT,
+                signature TEXT,
+                invalidated_at TEXT
             )
         ''')
         conn.commit()
@@ -149,6 +153,59 @@ class Database:
                 self.supabase.table('signals').update(update_data).eq("id", signal_id).execute()
             except Exception as e:
                 print(f"Error updating signal: {e}")
+
+    def save_blacklisted_zone(self, symbol: str, signature: str, invalidated_at: str):
+        """Save an invalidated zone to prevent future signals in the same zone."""
+        if self.use_sqlite:
+            try:
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO blacklisted_zones (symbol, signature, invalidated_at)
+                    VALUES (?, ?, ?)
+                ''', (symbol, signature, invalidated_at))
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                print(f"Error saving blacklisted zone to SQLite: {e}")
+        elif self.supabase:
+            try:
+                self.supabase.table('blacklisted_zones').insert({
+                    "symbol": symbol,
+                    "signature": signature,
+                    "invalidated_at": invalidated_at
+                }).execute()
+            except Exception as e:
+                print(f"Error saving blacklisted zone to Supabase: {e}")
+
+    def get_blacklisted_zones(self, symbol: str = None) -> set:
+        """Fetch all blacklisted signatures for a symbol as a set."""
+        blacklisted = set()
+        if self.use_sqlite:
+            try:
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.cursor()
+                if symbol:
+                    cursor.execute('SELECT signature FROM blacklisted_zones WHERE symbol = ?', (symbol,))
+                else:
+                    cursor.execute('SELECT signature FROM blacklisted_zones')
+                rows = cursor.fetchall()
+                conn.close()
+                for row in rows:
+                    blacklisted.add(row[0])
+            except Exception as e:
+                print(f"Error fetching blacklisted zones from SQLite: {e}")
+        elif self.supabase:
+            try:
+                query = self.supabase.table('blacklisted_zones').select('signature')
+                if symbol:
+                    query = query.eq('symbol', symbol)
+                response = query.execute()
+                for row in response.data:
+                    blacklisted.add(row['signature'])
+            except Exception as e:
+                print(f"Error fetching blacklisted zones from Supabase: {e}")
+        return blacklisted
 
     def get_statistics(self):
         """Calculate statistics like win rate."""

@@ -10,6 +10,7 @@ class SignalGenerator:
         self.active_signals = {}  # symbol -> signal_dict
         self.cooldowns = {}       # symbol -> expiration_time
         self.cooldown_minutes = cooldown_minutes
+        self.rejected_zones = set()
         
         # Setup Custom LLM (OpenAI-compatible)
         self.llm_api_key = os.getenv("LLM_API_KEY")
@@ -44,7 +45,8 @@ class SignalGenerator:
                             h1_trend: str = None, h4_trend: str = None, engine_ltf = None,
                             snr_zones: List[Dict] = None, snd_zones: List[Dict] = None, pd_zones: Dict = None, breakers: List[Dict] = None,
                             dxy_trend: str = None, fibo_ote: Dict = None, poc_price: float = None, trade_manager = None,
-                            amd_setups: List[Dict] = None, atr: float = 0.5, reversal_patterns: List[str] = None) -> Optional[Dict]:
+                            amd_setups: List[Dict] = None, atr: float = 0.5, reversal_patterns: List[str] = None,
+                            db = None, adx_h1: float = 25.0, adx_h4: float = 25.0) -> Optional[Dict]:
         """
         Evaluate if a new signal should be generated based on SMC confluence and LLM approval.
         Implements High Probability Grading (Grade A/B) based on Liquidity Sweeps and Multi-Timeframe.
@@ -64,6 +66,24 @@ class SignalGenerator:
             else:
                 del self.cooldowns[symbol]
                 
+        # Market Regime Filter (ADX)
+        is_ranging = False
+        if adx_h1 < 25.0 or adx_h4 < 25.0:
+            is_ranging = True
+            
+        if is_ranging:
+            # Check if price is near range extreme
+            near_extreme = False
+            if engine_ltf and engine_ltf.is_near_range_extreme(current_price):
+                near_extreme = True
+                
+            if near_extreme:
+                print(f"[{symbol}] Explicitly skipping signal: Market is ranging (ADX < 25) AND price is near range extreme (High risk of false breakout).")
+                return {"status": "SKIPPED", "reasons": ["Ranging Market: Near Extreme"]}
+            else:
+                print(f"[{symbol}] Standby mode: Market is ranging (ADX < 25). Waiting for trend.")
+                return {"status": "SKIPPED", "reasons": ["Ranging Market"]}
+
         if not events:
             return None
             
@@ -77,10 +97,10 @@ class SignalGenerator:
         # Volume Analysis Validation
         if last_event.get('is_fakeout', False):
             confluence_score -= 2
-            reasons.append("Low Volume Breakout (Fakeout Warning)")
+            reasons.append("Volume Breakout: Low")
         else:
             confluence_score += 1
-            reasons.append("High Volume Breakout (Confirmed)")
+            reasons.append("Volume Breakout: High")
         
         has_htf_alignment = False
         if htf_trend:
@@ -103,16 +123,16 @@ class SignalGenerator:
         if dxy_trend and "XAU" in symbol:
             if is_bullish and dxy_trend == "BEARISH":
                 confluence_score += 2
-                reasons.append("Strong Intermarket Correlation (DXY Down = Gold Up)")
+                reasons.append("Intermarket Correlation: DXY Bearish, Gold Bullish")
             elif is_bullish and dxy_trend == "BULLISH":
                 confluence_score -= 1
-                reasons.append("Weak Intermarket Correlation (DXY Up = Gold Down)")
+                reasons.append("Intermarket Correlation: DXY Bullish, Gold Bullish")
             elif not is_bullish and dxy_trend == "BULLISH":
                 confluence_score += 2
-                reasons.append("Strong Intermarket Correlation (DXY Up = Gold Down)")
+                reasons.append("Intermarket Correlation: DXY Bullish, Gold Bearish")
             elif not is_bullish and dxy_trend == "BEARISH":
                 confluence_score -= 1
-                reasons.append("Weak Intermarket Correlation (DXY Down = Gold Up)")
+                reasons.append("Intermarket Correlation: DXY Bearish, Gold Bearish")
         
         entry_target = None
         sl_target = None
@@ -132,11 +152,11 @@ class SignalGenerator:
                 if (7 <= gmt_hour < 10) or (12 <= gmt_hour < 15):
                     is_killzone = True
                     confluence_score += 2
-                    reasons.append("High Session Confidence (London/NY Killzone)")
+                    reasons.append("Session: Inside London/NY Killzone")
                 else:
                     if "XAU" in symbol:
                         # For XAUUSD, ignore signals outside killzone or treat them as Low Session Confidence
-                        reasons.append("Low Session Confidence (Outside Killzone)")
+                        reasons.append("Session: Outside Killzone")
                         # In strict mode, we could return None here
             except:
                 pass
@@ -189,24 +209,35 @@ class SignalGenerator:
         valid_fvg = None
         for fvg in reversed(fvgs):
             if is_bullish and fvg['type'] == "FVG_BULLISH" and not fvg['mitigated']:
-                # Ensure price is INSIDE the HTF zone
-                if fvg['bottom'] <= current_price <= fvg['top']:
-                    print(f"[{symbol}] WATCHING: Price inside HTF Bullish FVG ({fvg['bottom']} - {fvg['top']})")
+                # Ensure price hasn't broken below the POI
+                if current_price >= fvg['bottom']:
                     valid_fvg = fvg
+                    dist_to_zone = max(0, current_price - fvg['top'])
+                    if dist_to_zone == 0:
+                        print(f"[{symbol}] WATCHING: Price inside HTF Bullish FVG ({fvg['bottom']} - {fvg['top']})")
+                        reasons.append("Inside HTF Bullish FVG")
+                    else:
+                        print(f"[{symbol}] WATCHING: Price approaching HTF Bullish FVG ({fvg['bottom']} - {fvg['top']})")
+                        reasons.append("Approaching HTF Bullish FVG")
                     confluence_score += 1
-                    reasons.append("Inside HTF Bullish FVG")
                     if not entry_target: 
-                        entry_target = current_price
+                        entry_target = fvg['top'] if dist_to_zone >= 0.5 * atr else current_price
                         sl_target = fvg['bottom'] - buffer_dist
                     break
             elif not is_bullish and fvg['type'] == "FVG_BEARISH" and not fvg['mitigated']:
-                if fvg['bottom'] <= current_price <= fvg['top']:
-                    print(f"[{symbol}] WATCHING: Price inside HTF Bearish FVG ({fvg['bottom']} - {fvg['top']})")
+                # Ensure price hasn't broken above the POI
+                if current_price <= fvg['top']:
                     valid_fvg = fvg
+                    dist_to_zone = max(0, fvg['bottom'] - current_price)
+                    if dist_to_zone == 0:
+                        print(f"[{symbol}] WATCHING: Price inside HTF Bearish FVG ({fvg['bottom']} - {fvg['top']})")
+                        reasons.append("Inside HTF Bearish FVG")
+                    else:
+                        print(f"[{symbol}] WATCHING: Price approaching HTF Bearish FVG ({fvg['bottom']} - {fvg['top']})")
+                        reasons.append("Approaching HTF Bearish FVG")
                     confluence_score += 1
-                    reasons.append("Inside HTF Bearish FVG")
                     if not entry_target:
-                        entry_target = current_price
+                        entry_target = fvg['bottom'] if dist_to_zone >= 0.5 * atr else current_price
                         sl_target = fvg['top'] + buffer_dist
                     break
 
@@ -214,23 +245,33 @@ class SignalGenerator:
         valid_ob = None
         for ob in reversed(obs):
             if is_bullish and ob['type'] == "OB_BULLISH" and not ob['mitigated']:
-                if ob['bottom'] <= current_price <= ob['top']:
-                    print(f"[{symbol}] WATCHING: Price inside HTF Bullish OB ({ob['bottom']} - {ob['top']})")
+                if current_price >= ob['bottom']:
                     valid_ob = ob
+                    dist_to_zone = max(0, current_price - ob['top'])
+                    if dist_to_zone == 0:
+                        print(f"[{symbol}] WATCHING: Price inside HTF Bullish OB ({ob['bottom']} - {ob['top']})")
+                        reasons.append("Inside HTF Bullish OB")
+                    else:
+                        print(f"[{symbol}] WATCHING: Price approaching HTF Bullish OB ({ob['bottom']} - {ob['top']})")
+                        reasons.append("Approaching HTF Bullish OB")
                     confluence_score += 2
-                    reasons.append("Inside HTF Bullish OB")
                     if not entry_target:
-                        entry_target = current_price
+                        entry_target = ob['top'] if dist_to_zone >= 0.5 * atr else current_price
                         sl_target = ob['bottom'] - buffer_dist
                     break
             elif not is_bullish and ob['type'] == "OB_BEARISH" and not ob['mitigated']:
-                if ob['bottom'] <= current_price <= ob['top']:
-                    print(f"[{symbol}] WATCHING: Price inside HTF Bearish OB ({ob['bottom']} - {ob['top']})")
+                if current_price <= ob['top']:
                     valid_ob = ob
+                    dist_to_zone = max(0, ob['bottom'] - current_price)
+                    if dist_to_zone == 0:
+                        print(f"[{symbol}] WATCHING: Price inside HTF Bearish OB ({ob['bottom']} - {ob['top']})")
+                        reasons.append("Inside HTF Bearish OB")
+                    else:
+                        print(f"[{symbol}] WATCHING: Price approaching HTF Bearish OB ({ob['bottom']} - {ob['top']})")
+                        reasons.append("Approaching HTF Bearish OB")
                     confluence_score += 2
-                    reasons.append("Inside HTF Bearish OB")
                     if not entry_target:
-                        entry_target = current_price
+                        entry_target = ob['bottom'] if dist_to_zone >= 0.5 * atr else current_price
                         sl_target = ob['top'] + buffer_dist
                     break
 
@@ -239,25 +280,56 @@ class SignalGenerator:
         if breakers:
             for brk in reversed(breakers):
                 if is_bullish and brk['type'] == "BREAKER_BULLISH":
-                    if brk['bottom'] <= current_price <= brk['top']:
-                        print(f"[{symbol}] WATCHING: Price inside HTF Bullish Breaker ({brk['bottom']} - {brk['top']})")
+                    if current_price >= brk['bottom']:
                         valid_breaker = brk
+                        dist_to_zone = max(0, current_price - brk['top'])
+                        if dist_to_zone == 0:
+                            print(f"[{symbol}] WATCHING: Price inside HTF Bullish Breaker ({brk['bottom']} - {brk['top']})")
+                            reasons.append("Inside HTF Bullish Breaker")
+                        else:
+                            print(f"[{symbol}] WATCHING: Price approaching HTF Bullish Breaker ({brk['bottom']} - {brk['top']})")
+                            reasons.append("Approaching HTF Bullish Breaker")
                         confluence_score += 2
-                        reasons.append("Inside HTF Bullish Breaker")
                         if not entry_target:
-                            entry_target = current_price
+                            entry_target = brk['top'] if dist_to_zone >= 0.5 * atr else current_price
                             sl_target = brk['bottom'] - buffer_dist
                         break
+
                 elif not is_bullish and brk['type'] == "BREAKER_BEARISH":
-                    if brk['bottom'] <= current_price <= brk['top']:
-                        print(f"[{symbol}] WATCHING: Price inside HTF Bearish Breaker ({brk['bottom']} - {brk['top']})")
+                    if current_price <= brk['top']:
                         valid_breaker = brk
+                        dist_to_zone = max(0, brk['bottom'] - current_price)
+                        if dist_to_zone == 0:
+                            print(f"[{symbol}] WATCHING: Price inside HTF Bearish Breaker ({brk['bottom']} - {brk['top']})")
+                            reasons.append("Inside HTF Bearish Breaker")
+                        else:
+                            print(f"[{symbol}] WATCHING: Price approaching HTF Bearish Breaker ({brk['bottom']} - {brk['top']})")
+                            reasons.append("Approaching HTF Bearish Breaker")
                         confluence_score += 2
-                        reasons.append("Inside HTF Bearish Breaker")
                         if not entry_target:
-                            entry_target = current_price
+                            entry_target = brk['bottom'] if dist_to_zone >= 0.5 * atr else current_price
                             sl_target = brk['top'] + buffer_dist
                         break
+
+        # Generate a unique POI signature to track rejected setups
+        poi_signature = None
+        if valid_ob:
+            poi_signature = f"{symbol}_{valid_ob['type']}_{valid_ob['bottom']}_{valid_ob['top']}"
+        elif valid_fvg:
+            poi_signature = f"{symbol}_{valid_fvg['type']}_{valid_fvg['bottom']}_{valid_fvg['top']}"
+        elif valid_breaker:
+            poi_signature = f"{symbol}_{valid_breaker['type']}_{valid_breaker['bottom']}_{valid_breaker['top']}"
+            
+        if poi_signature and poi_signature in self.rejected_zones:
+            # We already queried the LLM for this exact zone and got rejected. Do not retry.
+            return None
+            
+        # Check permanent database blacklist
+        if poi_signature and db:
+            blacklisted = db.get_blacklisted_zones(symbol)
+            if poi_signature in blacklisted:
+                print(f"[{symbol}] Skipping signal: Zone {poi_signature} is BLACKLISTED (Previously hit SL or BE).")
+                return {"status": "SKIPPED", "reasons": [f"Blacklisted Zone: {poi_signature}"]}
 
         valid_snr = False
         if snr_zones:
@@ -337,31 +409,40 @@ class SignalGenerator:
         
         has_poi = (valid_ob or valid_fvg or valid_breaker or valid_snr)
         
-        if has_poi:
-            # ATR Scalping High WR Logic
+        if has_poi and entry_target and sl_target:
             has_reversal = reversal_patterns and (any("BULLISH" in k for k in reversal_patterns) if is_bullish else any("BEARISH" in k for k in reversal_patterns))
             
-            if has_reversal:
-                if has_htf_alignment:
-                    setup_grade = "A"
-                    reasons.append("GRADE A: ATR Scalping (HTF Alignment + POI + Reversal Pattern)")
-                else:
-                    setup_grade = "B"
-                    reasons.append("GRADE B: ATR Scalping Counter-Trend (POI + Reversal Pattern)")
-                    
-                for k in reversal_patterns:
-                    reasons.append(f"Candlestick Pattern: {k}")
-                    
-                entry_target = current_price
-                sl_target = current_price # will be adjusted by ATR
+            dist_to_entry = abs(current_price - entry_target)
+            # Relax limit requirement slightly: if it's outside 0.2 ATR, set a LIMIT. 
+            # Often price doesn't push deep into the zone.
+            exec_type = "LIMIT" if dist_to_entry >= 0.2 * atr else "CONFIRMED"
+            
+            if exec_type == "LIMIT":
+                setup_grade = "A" if has_htf_alignment else "B"
+                risk_multiplier = 1.0 if setup_grade == "A" else 0.5
+                print(f"[AUDIT-LIMIT] {symbol} | Trend: {htf_trend} | Jarak ke Zona: {dist_to_entry:.2f} (ATR: {atr:.2f}) | Grade: {setup_grade} | Membentuk Sinyal LIMIT.")
+                reasons.append(f"Setup Profile: LIMIT ORDER Pending (Distance: {dist_to_entry:.4f})")
+                reasons.append("[UI_BADGE:PENDING LIMIT ORDER] Pasang order limit di harga entry, tunggu sampai tersentuh.")
+                # Retain the POI-edge entry_target and sl_target
             else:
-                return None
+                if has_reversal:
+                    setup_grade = "A" if has_htf_alignment else "B"
+                    risk_multiplier = 1.0 if setup_grade == "A" else 0.5
+                    reasons.append("Setup Profile: CONFIRMED ORDER (Market Execution)")
+                    reasons.append("[UI_BADGE:ENTRY ZONE ACTIVE] Harga sudah di zona dengan konfirmasi, siap entry sekarang.")
+                    for k in reversal_patterns:
+                        reasons.append(f"Candlestick Pattern: {k}")
+                    entry_target = current_price
+                    sl_target = current_price # will be adjusted by ATR
+                else:
+                    return None
         
         if setup_grade in ["A", "B"] and entry_target and sl_target:
-            signal_type = "BUY" if is_bullish else "SELL"
+            signal_action = "BUY" if is_bullish else "SELL"
             
-            # Market order executes exactly at current_price
-            entry_target = current_price
+            # Market order executes exactly at current_price, but limit uses the set entry_target
+            if exec_type == "CONFIRMED":
+                entry_target = current_price
             
             # High WR Logic: Gunakan ATR untuk SL dan TP
             # SL = Entry +/- (1.5 * ATR)
@@ -370,23 +451,24 @@ class SignalGenerator:
             if atr is None or atr <= 0:
                 atr = 1.0 if "XAU" in symbol else 0.001
             
-            # Minimum > 100 pips TP (150 pips = 15.0 points)
+            # Adjusted TP Floor (target >= 150 pips)
             if "XAU" in symbol:
-                min_tp_dist = 15.0
+                min_tp_dist = 15.0  # 150 pips
             elif "JPY" in symbol:
                 min_tp_dist = 1.5
             else:
                 min_tp_dist = 0.0150
-                
-            effective_tp_dist = max(2.0 * atr, min_tp_dist)
             
-            # Minimum SL Floor
+            # Minimum SL Floor and Max Cap
             if "XAU" in symbol:
-                min_sl_floor = max(1.0 * atr, 3.0)  # At least 30 pips or 1.0 ATR
+                min_sl_floor = 5.0  # 50 pips
+                max_sl_cap = 8.0    # 80 pips
             elif "JPY" in symbol:
-                min_sl_floor = max(1.0 * atr, 0.3)
+                min_sl_floor = 0.5
+                max_sl_cap = 0.8
             else:
-                min_sl_floor = max(1.0 * atr, 0.0030)
+                min_sl_floor = 0.0050
+                max_sl_cap = 0.0080
                 
             # SL = Swing point +/- (1.0 * ATR buffer)
             # Find significant swing point
@@ -398,23 +480,31 @@ class SignalGenerator:
                 sl_target_from_swing = swing_point - (1.0 * atr)
                 sl_distance = entry_target - sl_target_from_swing
                 
-                # Apply minimum floor
+                # Apply minimum floor and max cap
                 if sl_distance < min_sl_floor:
-                    sl_target = entry_target - min_sl_floor
-                else:
-                    sl_target = sl_target_from_swing
+                    sl_distance = min_sl_floor
+                elif sl_distance > max_sl_cap:
+                    sl_distance = max_sl_cap
                     
+                sl_target = entry_target - sl_distance
+                
+                # Dynamic TP targeting at least 150 pips or 2R
+                effective_tp_dist = max(2.0 * sl_distance, min_tp_dist)
                 tp_target = entry_target + effective_tp_dist
             else:
                 sl_target_from_swing = swing_point + (1.0 * atr)
                 sl_distance = sl_target_from_swing - entry_target
                 
-                # Apply minimum floor
+                # Apply minimum floor and max cap
                 if sl_distance < min_sl_floor:
-                    sl_target = entry_target + min_sl_floor
-                else:
-                    sl_target = sl_target_from_swing
+                    sl_distance = min_sl_floor
+                elif sl_distance > max_sl_cap:
+                    sl_distance = max_sl_cap
                     
+                sl_target = entry_target + sl_distance
+                
+                # Dynamic TP targeting at least 150 pips or 2R
+                effective_tp_dist = max(2.0 * sl_distance, min_tp_dist)
                 tp_target = entry_target - effective_tp_dist
                 
             # --- LLM APPROVAL PHASE ---
@@ -425,27 +515,29 @@ class SignalGenerator:
                 
                 try:
                     prompt = f"""
-You are an elite Smart Money Concept (SMC) trader analyzing a potential trade setup.
-Evaluate the following context and decide if it's a high probability setup.
-Return ONLY valid JSON. Do not include markdown formatting like ```json or any other text.
+You are an objective and skeptical trading risk analyst. 
+Review the following market context for a {signal_action} setup.
+Your primary task is to find reasons why this trade might FAIL or hit Stop Loss. 
+Consider factors such as low volume fakeouts, mitigated order blocks, contra-trend action on higher timeframes, and stop-loss hunting.
+Do NOT be biased by any checklist items. Evaluate the raw facts objectively.
 
 Context:
 - Symbol: {symbol}
 - Current Price: {current_price}
-- Setup Type: {signal_type}
+- Setup Type: {signal_action} ({exec_type})
 - HTF Trend: {htf_trend or 'Unknown'}
 - Entry Target: {entry_target}
 - Stop Loss: {sl_target}
 - Take Profit: {tp_target}
-- Confluence Reasons: {', '.join(reasons)}
-- Setup Grade: {setup_grade}
+- Identified Market Facts: {', '.join(reasons)}
 - Fundamental Sentiment: {news_sentiment}
 
 JSON Format to Return:
 {{
   "approved": true/false,
-  "confidence": <number 0-100>,
-  "reasoning": "<short string explaining why>"
+  "risk_score": <number 0-100>,
+  "failure_risks": ["list of reasons why this could fail"],
+  "reasoning": "<short string explaining final decision>"
 }}
 """
                     response = await self.client.chat.completions.create(
@@ -468,12 +560,16 @@ JSON Format to Return:
                     
                     if not llm_decision.get("approved"):
                         print(f"[{symbol}] LLM Rejected: {llm_decision.get('reasoning')}")
-                        return None
-                        
-                    reasons.append(f"LLM Verified ({llm_decision.get('confidence')}%)")
+                        setup_grade = "REJECTED_BY_LLM"
+                        reasons.append(f"LLM Rejected: {llm_decision.get('reasoning')}")
+                        if poi_signature:
+                            self.rejected_zones.add(poi_signature)
+                    else:
+                        reasons.append(f"LLM Verified (Risk Score: {llm_decision.get('risk_score')}%)")
                     
                 except Exception as e:
-                    print(f"[{symbol}] LLM Evaluation Error: {e}. Proceeding without LLM.")
+                    if "404" not in str(e) and "model_not_found" not in str(e):
+                        print(f"[{symbol}] LLM Evaluation Error: {e}. Proceeding without LLM.")
 
             # Calculate Lot Size with Risk Multiplier
             settings = settings_manager.load_settings()
@@ -495,16 +591,18 @@ JSON Format to Return:
                 
             signal = {
                 "symbol": symbol,
-                "type": signal_type,
+                "type": signal_action,
+                "signal_type": exec_type,
                 "timestamp": datetime.now().isoformat(),
                 "entry": entry_target,
                 "sl": sl_target,
                 "tp": tp_target,
                 "lot_size": lot_size,
                 "reasons": reasons,
-                "status": "PENDING",
+                "status": "PENDING" if setup_grade != "REJECTED_BY_LLM" else "REJECTED",
                 "grade": setup_grade,
-                "atr": atr
+                "atr": atr,
+                "poi_signature": poi_signature
             }
             
             self.active_signals[symbol] = signal

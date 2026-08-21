@@ -10,11 +10,18 @@ class TradeManager:
         self.on_trade_closed = on_trade_closed
         self.daily_pnl = 0.0
         self.consecutive_losses = 0
-        self.current_trading_day = datetime.now().date()
+        self.current_trading_day = None
+        self.current_time_str = None
         self._load_tracked_trades()
 
     def _check_daily_reset(self):
-        today = datetime.now().date()
+        if not self.current_time_str:
+            return
+            
+        today = datetime.fromisoformat(self.current_time_str.replace('Z', '+00:00')).date()
+        if self.current_trading_day is None:
+            self.current_trading_day = today
+            
         if today != self.current_trading_day:
             self.daily_pnl = 0.0
             self.consecutive_losses = 0
@@ -34,9 +41,7 @@ class TradeManager:
         self._check_daily_reset()
         if self.daily_pnl <= -3.0: # -3% max drawdown (assuming 1R = 1%)
             return False, f"Daily Drawdown Limit Reached ({self.daily_pnl}R)"
-        if self.daily_pnl >= 5.0: # +5% daily target
-            return False, f"Daily Profit Target Reached ({self.daily_pnl}R)"
-        if self.consecutive_losses >= 2:
+        if self.consecutive_losses >= 3: # 3 max consecutive losses
             return False, f"Max Consecutive Losses Reached ({self.consecutive_losses})"
         return True, "Allowed"
 
@@ -88,6 +93,9 @@ class TradeManager:
         """Evaluate tracked trades against current market price."""
         symbol = tick['symbol']
         price = tick['price']
+        if 'timestamp' in tick:
+            self.current_time_str = tick['timestamp']
+            self._check_daily_reset()
         
         for trade in self.tracked_trades[:]:
             if trade['symbol'] != symbol:
@@ -111,9 +119,20 @@ class TradeManager:
                         ts_obj = datetime.fromisoformat(ts.replace('Z', '+00:00'))
                         # Use naive datetime for comparison if ts_obj is naive, else aware
                         now = datetime.now(ts_obj.tzinfo)
-                        if now - ts_obj > timedelta(minutes=15):
-                            print(f"[{symbol}] PENDING trade expired (> 15 mins). Cancelling.")
+                        if now - ts_obj > timedelta(minutes=30):
+                            print(f"[{symbol}] PENDING trade expired (> 30 mins). Cancelling.")
                             trade['status'] = 'CANCELLED'
+                            
+                            if 'poi_signature' in trade:
+                                try:
+                                    self.db.save_blacklisted_zone(
+                                        symbol=trade['symbol'], 
+                                        signature=trade['poi_signature'], 
+                                        invalidated_at=datetime.now().isoformat()
+                                    )
+                                except Exception as e:
+                                    print(f"Error blacklisting zone on expiry: {e}")
+                                    
                             if trade_id:
                                 self.db.update_signal_status(trade_id, 'CANCELLED')
                             self.tracked_trades.remove(trade)
@@ -139,6 +158,18 @@ class TradeManager:
                 if missed:
                     print(f"[{symbol}] PENDING trade missed (hit TP before Entry). Cancelling.")
                     trade['status'] = 'CANCELLED'
+                    
+                    if 'poi_signature' in trade:
+                        try:
+                            from datetime import datetime
+                            self.db.save_blacklisted_zone(
+                                symbol=trade['symbol'], 
+                                signature=trade['poi_signature'], 
+                                invalidated_at=datetime.now().isoformat()
+                            )
+                        except Exception as e:
+                            print(f"Error blacklisting zone on miss: {e}")
+                            
                     if trade_id:
                         self.db.update_signal_status(trade_id, 'CANCELLED')
                     self.tracked_trades.remove(trade)
@@ -162,10 +193,18 @@ class TradeManager:
                     from datetime import datetime
                     trade['entry_timestamp'] = datetime.now().isoformat()
                     trade['partial_taken'] = False
+                    trade['mfe_price'] = price
                     if trade_id:
                         self.db.update_signal_status(trade_id, 'ACTIVE')
                         
-            elif status == 'ACTIVE':
+            if trade['status'] == 'ACTIVE':
+                if 'mfe_price' not in trade:
+                    trade['mfe_price'] = price
+                if is_buy:
+                    trade['mfe_price'] = max(trade['mfe_price'], price)
+                else:
+                    trade['mfe_price'] = min(trade['mfe_price'], price)
+
                 # Check for Time-Based Exit (> 4 hours)
                 try:
                     from datetime import datetime, timedelta
@@ -173,15 +212,30 @@ class TradeManager:
                     if entry_ts:
                         entry_ts_obj = datetime.fromisoformat(entry_ts.replace('Z', '+00:00'))
                         now = datetime.now(entry_ts_obj.tzinfo)
-                        if now - entry_ts_obj > timedelta(hours=4):
+                        if now - entry_ts_obj > timedelta(hours=48):
                             print(f"[{symbol}] Time-based exit for trade. Closing at market.")
                             won = (is_buy and price > entry) or (not is_buy and price < entry)
                             new_status = 'WIN' if won else 'LOSS'
-                            pnl = 0.5 if won else -0.5
+                            
+                            risk_dist = abs(entry - sl) if abs(entry - sl) > 0 else 0.0001
+                            pnl = abs(price - entry) / risk_dist if won else -abs(price - entry) / risk_dist
+                            
+                            mfe_dist = abs(trade['mfe_price'] - entry)
+                            if (is_buy and trade['mfe_price'] > entry) or (not is_buy and trade['mfe_price'] < entry):
+                                trade['mfe_r'] = mfe_dist / risk_dist
+                            else:
+                                trade['mfe_r'] = 0.0
                             
                             trade['status'] = new_status
                             self._update_stats(won, pnl)
                             
+                            if new_status == 'LOSS' and 'poi_signature' in trade:
+                                self.db.save_blacklisted_zone(
+                                    symbol=trade['symbol'], 
+                                    signature=trade['poi_signature'], 
+                                    invalidated_at=datetime.now().isoformat()
+                                )
+
                             if trade_id:
                                 self.db.update_signal_status(trade_id, new_status, pnl)
                             self.tracked_trades.remove(trade)
@@ -198,54 +252,50 @@ class TradeManager:
 
                 atr = float(trade.get('atr', abs(entry - sl) / 1.5)) # fallback to inferred ATR
                 
-                # Check for Smart Scaling Out (1.0 ATR partial) and BE move
-                if not trade.get('partial_taken', False):
-                    target_dist = 1.0 * atr
-                    reached_partial = False
-                    if is_buy and price >= (entry + target_dist):
-                        reached_partial = True
-                    elif not is_buy and price <= (entry - target_dist):
-                        reached_partial = True
-                        
-                    if reached_partial:
-                        print(f"[{symbol}] 1.0 ATR Reached! Taking partial profit and moving SL to BE.")
-                        trade['partial_taken'] = True
-                        trade['be_moved'] = True
-                        trade['current_sl'] = entry
-
-                # Re-read SL because it might have been updated to BE
-                current_sl = float(trade.get('current_sl', trade.get('sl_price', trade.get('sl'))))
-
                 # Check for TP / SL
                 won = False
                 lost = False
                 
                 if is_buy:
-                    if price >= tp:
-                        won = True
-                    elif price <= current_sl:
+                    if price <= sl:
                         lost = True
+                    elif price >= tp:
+                        won = True
                 else:
-                    if price <= tp:
-                        won = True
-                    elif price >= current_sl:
+                    if price >= sl:
                         lost = True
+                    elif price <= tp:
+                        won = True
                         
                 if won or lost:
+                    risk_dist = abs(entry - sl) if abs(entry - sl) > 0 else 0.0001
                     if won:
                         new_status = 'WIN'
-                        pnl = 2.0 if trade.get('partial_taken') else 3.0
+                        pnl = abs(tp - entry) / risk_dist
                     else:
-                        if trade.get('partial_taken'):
-                            new_status = 'PARTIAL_WIN'
-                            pnl = 0.5
-                        else:
-                            new_status = 'LOSS'
-                            pnl = -1.0
+                        new_status = 'LOSS'
+                        pnl = -1.0
+                        
+                    mfe_dist = abs(trade['mfe_price'] - entry)
+                    if (is_buy and trade['mfe_price'] > entry) or (not is_buy and trade['mfe_price'] < entry):
+                        trade['mfe_r'] = mfe_dist / risk_dist
+                    else:
+                        trade['mfe_r'] = 0.0
                             
                     trade['status'] = new_status
                     
                     self._update_stats(won, pnl)
+                    
+                    if new_status in ['LOSS', 'PARTIAL_WIN'] and 'poi_signature' in trade:
+                        try:
+                            from datetime import datetime
+                            self.db.save_blacklisted_zone(
+                                symbol=trade['symbol'], 
+                                signature=trade['poi_signature'], 
+                                invalidated_at=datetime.now().isoformat()
+                            )
+                        except Exception as e:
+                            print(f"Error blacklisting zone: {e}")
                     
                     if trade_id:
                         self.db.update_signal_status(trade_id, new_status, pnl)
