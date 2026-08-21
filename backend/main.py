@@ -1,4 +1,5 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Header, HTTPException
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import asyncio
@@ -510,6 +511,72 @@ async def receive_custom_signal(signal_data: CustomSignalModel, x_custom_signal_
     
     return {"status": "success", "message": "Custom signal processed and added", "signal": signal}
 
+@app.get("/api/dashboard")
+async def get_dashboard_data():
+    stats = db.get_statistics()
+    historical = db.get_historical_signals(limit=1000)
+    
+    recent_trades = []
+    equity_curve = []
+    current_equity = 0.0
+    
+    historical_reversed = reversed(historical)
+    peak = 0
+    max_dd = 0
+    
+    for h in historical_reversed:
+        if h.get('status') in ['WIN', 'LOSS', 'PARTIAL_WIN']:
+            pnl = h.get('pnl', 0.0)
+            if pnl is None: pnl = 0.0
+            current_equity += pnl
+            equity_curve.append({
+                "time": h.get("timestamp"),
+                "equity": current_equity
+            })
+            
+            if current_equity > peak:
+                peak = current_equity
+            dd = peak - current_equity
+            if dd > max_dd:
+                max_dd = dd
+                
+    for h in historical[:100]:
+        if h.get('status') in ['WIN', 'LOSS', 'PARTIAL_WIN']:
+            recent_trades.append({
+                "time": h.get("timestamp"),
+                "type": h.get("type", ""),
+                "status": h.get("status"),
+                "pnl": round(h.get("pnl", 0.0) or 0.0, 2)
+            })
+            
+    active_signals = []
+    for t in trade_manager.tracked_trades:
+        active_signals.append({
+            "time": t.get("timestamp"),
+            "type": t.get("type", ""),
+            "status": t.get("status"),
+            "entry": t.get("entry", 0),
+            "sl": t.get("sl", 0),
+            "tp": t.get("tp", 0)
+        })
+        
+    dashboard_data = {
+        "summary": {
+            "total_trades": stats.get("total_trades", 0),
+            "wins": stats.get("wins", 0),
+            "losses": stats.get("losses", 0),
+            "win_rate": stats.get("win_rate", 0),
+            "total_pnl": current_equity,
+            "max_drawdown": max_dd
+        },
+        "equity_curve": equity_curve,
+        "recent_trades": recent_trades,
+        "active_signals": active_signals
+    }
+    return dashboard_data
+
+# Mount frontend at the root (must be after all API routes)
+app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
 
 if __name__ == "__main__":
     import uvicorn

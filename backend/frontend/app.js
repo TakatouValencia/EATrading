@@ -6,7 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function fetchData() {
     try {
-        const response = await fetch('../data/dashboard_data.json');
+        const response = await fetch('/api/dashboard');
         if (!response.ok) return;
         const data = await response.json();
         updateDashboard(data);
