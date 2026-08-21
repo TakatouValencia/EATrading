@@ -224,7 +224,14 @@ async def run_smc_analysis(tick: dict):
             # We want to focus on 1 signal at a time.
             signal = None
             if not trade_manager.has_active_trade(symbol):
-                # Run SMC Engine on H4
+                
+                # Apply Risk Management / Circuit Breaker
+                trade_manager.current_time_str = tick_time_obj.isoformat()
+                trade_manager._check_daily_reset()
+                allowed, reason = trade_manager.check_trading_allowed()
+                
+                if allowed:
+                    # Run SMC Engine on H4
                 h4_trend = None
                 if df_h4:
                     h4_events = SMCEngine(df_h4).detect_bos_choch()
@@ -271,6 +278,10 @@ async def run_smc_analysis(tick: dict):
                     reversal_patterns=reversal_patterns,
                     engine_ltf=engine_ltf
                 )
+            else:
+                # Print circuit breaker warning occasionally
+                if tick_time_obj.minute % 15 == 0:
+                    print(f"[{symbol}] TRADING PAUSED (Circuit Breaker): {reason}")
             
         # Outside the lock - Broadcast to clients
         payload = {
