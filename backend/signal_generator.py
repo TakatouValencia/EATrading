@@ -426,6 +426,8 @@ class SignalGenerator:
                 # Retain the POI-edge entry_target and sl_target
             else:
                 if has_reversal:
+                    if not poi_signature:
+                        poi_signature = f"{symbol}_reversal_{current_price}"
                     setup_grade = "A" if has_htf_alignment else "B"
                     risk_multiplier = 1.0 if setup_grade == "A" else 0.5
                     reasons.append("Setup Profile: CONFIRMED ORDER (Market Execution)")

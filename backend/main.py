@@ -233,56 +233,56 @@ async def run_smc_analysis(tick: dict):
                 
                 if allowed:
                     # Run SMC Engine on H4
-                h4_trend = None
-                if df_h4:
-                    h4_events = SMCEngine(df_h4).detect_bos_choch()
-                    if h4_events:
-                        h4_trend = "BULLISH" if "BULLISH" in h4_events[-1]['type'] else "BEARISH"
-                        
-                # Run SMC Engine on H1
-                h1_trend = None
-                htf_obs = []
-                htf_fvgs = []
-                if df_h1:
-                    h1_engine = SMCEngine(df_h1)
-                    h1_events = h1_engine.detect_bos_choch()
-                    htf_fvgs = h1_engine.detect_fvg()
-                    htf_obs = h1_engine.detect_order_blocks(h1_events)
-                    htf_breakers = h1_engine.detect_breaker_blocks(h1_events)
-                    if h1_events:
-                        h1_trend = "BULLISH" if "BULLISH" in h1_events[-1]['type'] else "BEARISH"
+                    h4_trend = None
+                    if df_h4:
+                        h4_events = SMCEngine(df_h4).detect_bos_choch()
+                        if h4_events:
+                            h4_trend = "BULLISH" if "BULLISH" in h4_events[-1]['type'] else "BEARISH"
+                            
+                    # Run SMC Engine on H1
+                    h1_trend = None
+                    htf_obs = []
+                    htf_fvgs = []
+                    if df_h1:
+                        h1_engine = SMCEngine(df_h1)
+                        h1_events = h1_engine.detect_bos_choch()
+                        htf_fvgs = h1_engine.detect_fvg()
+                        htf_obs = h1_engine.detect_order_blocks(h1_events)
+                        htf_breakers = h1_engine.detect_breaker_blocks(h1_events)
+                        if h1_events:
+                            h1_trend = "BULLISH" if "BULLISH" in h1_events[-1]['type'] else "BEARISH"
 
-                atr = engine_ltf.calculate_atr(period=14)
-                reversal_patterns = engine_ltf.detect_reversal_patterns()
-                
-                # Now evaluate_confluence is async (calls Gemini LLM)
-                signal = await signal_generator.evaluate_confluence(
-                    symbol=symbol,
-                    current_price=tick['price'],
-                    events=events,
-                    obs=htf_obs,
-                    fvgs=htf_fvgs,
-                    sweeps=sweeps,
-                    htf_trend=htf_trend,
-                    h1_trend=h1_trend,
-                    h4_trend=h4_trend,
-                    snr_zones=snr_zones,
-                    snd_zones=snd_zones,
-                    pd_zones=pd_zones,
-                    breakers=htf_breakers,
-                    dxy_trend=dxy_trend,
-                    fibo_ote=fibo_ote,
-                    poc_price=poc_price,
-                    trade_manager=trade_manager,
-                    amd_setups=amd_setups,
-                    atr=atr,
-                    reversal_patterns=reversal_patterns,
-                    engine_ltf=engine_ltf
-                )
-            else:
-                # Print circuit breaker warning occasionally
-                if tick_time_obj.minute % 15 == 0:
-                    print(f"[{symbol}] TRADING PAUSED (Circuit Breaker): {reason}")
+                    atr = engine_ltf.calculate_atr(period=14)
+                    reversal_patterns = engine_ltf.detect_reversal_patterns()
+                    
+                    # Now evaluate_confluence is async (calls Gemini LLM)
+                    signal = await signal_generator.evaluate_confluence(
+                        symbol=symbol,
+                        current_price=tick['price'],
+                        events=events,
+                        obs=htf_obs,
+                        fvgs=htf_fvgs,
+                        sweeps=sweeps,
+                        htf_trend=htf_trend,
+                        h1_trend=h1_trend,
+                        h4_trend=h4_trend,
+                        snr_zones=snr_zones,
+                        snd_zones=snd_zones,
+                        pd_zones=pd_zones,
+                        breakers=htf_breakers,
+                        dxy_trend=dxy_trend,
+                        fibo_ote=fibo_ote,
+                        poc_price=poc_price,
+                        trade_manager=trade_manager,
+                        amd_setups=amd_setups,
+                        atr=atr,
+                        reversal_patterns=reversal_patterns,
+                        engine_ltf=engine_ltf
+                    )
+                else:
+                    # Print circuit breaker warning occasionally
+                    if tick_time_obj.minute % 15 == 0:
+                        print(f"[{symbol}] TRADING PAUSED (Circuit Breaker): {reason}")
             
         # Outside the lock - Broadcast to clients
         payload = {

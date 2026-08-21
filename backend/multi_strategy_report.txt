@@ -1,0 +1,45 @@
+Strategy: SMC (Baseline)
+Total Signals: 957 | Executed: 957
+Win Rate: 95.61% (915W / 42L)
+Total R (PnL): 1204.43 R
+Avg RR per Win: 1.32 R
+Max Drawdown: 3.60 R
+Max Cons Losses: 3
+Trending (W/L): 491/33 | Ranging (W/L): 424/9
+--------------------------------------------------
+Strategy: VWAP Mean Reversion
+Total Signals: 7 | Executed: 7
+Win Rate: 57.14% (4W / 3L)
+Total R (PnL): 1.20 R
+Avg RR per Win: 0.30 R
+Max Drawdown: 2.00 R
+Max Cons Losses: 2
+Trending (W/L): 0/0 | Ranging (W/L): 4/3
+--------------------------------------------------
+Strategy: EMA Trend + Pullback
+Total Signals: 0 | Executed: 0
+Win Rate: 0.00% (0W / 0L)
+Total R (PnL): 0.00 R
+Avg RR per Win: 0.00 R
+Max Drawdown: 0.00 R
+Max Cons Losses: 0
+Trending (W/L): 0/0 | Ranging (W/L): 0/0
+--------------------------------------------------
+Strategy: Volatility Breakout
+Total Signals: 21 | Executed: 20
+Win Rate: 80.00% (16W / 4L)
+Total R (PnL): 16.23 R
+Avg RR per Win: 1.01 R
+Max Drawdown: 3.00 R
+Max Cons Losses: 3
+Trending (W/L): 12/2 | Ranging (W/L): 4/2
+--------------------------------------------------
+Strategy: Session Breakout (Asian Range)
+Total Signals: 7 | Executed: 7
+Win Rate: 85.71% (6W / 1L)
+Total R (PnL): 5.42 R
+Avg RR per Win: 0.90 R
+Max Drawdown: 1.00 R
+Max Cons Losses: 1
+Trending (W/L): 5/1 | Ranging (W/L): 1/0
+--------------------------------------------------
