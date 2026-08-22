@@ -7,10 +7,10 @@ SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 
 class Database:
-    def __init__(self):
+    def __init__(self, db_name='local_trading.db'):
         self.supabase: Client = None
         self.use_sqlite = False
-        self.db_path = os.path.join(os.path.dirname(__file__), 'local_trading.db')
+        self.db_path = os.path.join(os.path.dirname(__file__), db_name)
         
         if SUPABASE_URL and SUPABASE_KEY:
             try:
@@ -35,6 +35,10 @@ class Database:
                 entry_price REAL,
                 sl_price REAL,
                 tp_price REAL,
+                reasons TEXT,
+                status TEXT,
+                created_at TEXT,
+                pnl REAL
             )
         ''')
         cursor.execute('''
