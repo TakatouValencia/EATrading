@@ -79,10 +79,6 @@ async def run_smc_analysis(tick: dict):
     Called by DataProvider whenever a new tick arrives.
     We append the tick to our active dataframe, run SMC logic, and check for signals.
     """
-    # [SYSTEM PAUSED FOR AUDIT]
-    # Halting signal generation temporarily to prevent further losses while debugging.
-    return
-
     try:
         symbol = tick['symbol']
         
