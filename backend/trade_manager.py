@@ -61,7 +61,7 @@ class TradeManager:
 
     def add_trade(self, signal: Dict):
         # Instead of reloading from DB, append directly to prevent state wipe on DB lock
-        if signal['type'] in ["BUY", "SELL"] and signal['status'] == 'PENDING':
+        if signal.get('signal_type') == 'CONFIRMED' and signal['status'] == 'PENDING':
             signal['status'] = 'ACTIVE'
             from datetime import datetime
             signal['entry_timestamp'] = datetime.now().isoformat()
