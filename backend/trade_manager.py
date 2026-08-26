@@ -18,7 +18,16 @@ class TradeManager:
         if not self.current_time_str:
             return
             
-        today = datetime.fromisoformat(self.current_time_str.replace('Z', '+00:00')).date()
+        if isinstance(self.current_time_str, (int, float)):
+            today = datetime.fromtimestamp(self.current_time_str).date()
+        elif isinstance(self.current_time_str, str):
+            try:
+                today = datetime.fromisoformat(self.current_time_str.replace('Z', '+00:00')).date()
+            except Exception:
+                today = datetime.now().date()
+        else:
+            today = datetime.now().date()
+
         if self.current_trading_day is None:
             self.current_trading_day = today
             
