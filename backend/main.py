@@ -339,6 +339,9 @@ async def run_smc_analysis(tick: dict):
 
         
         if signal:
+            if signal.get("status") == "SKIPPED":
+                return
+                
             # Check if it's identical to an existing pending signal to avoid spam
             is_identical = False
             for t in trade_manager.tracked_trades:

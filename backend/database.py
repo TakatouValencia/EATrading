@@ -38,7 +38,8 @@ class Database:
                 reasons TEXT,
                 status TEXT,
                 created_at TEXT,
-                pnl REAL
+                pnl REAL,
+                poi_signature TEXT
             )
         ''')
         cursor.execute('''
@@ -59,8 +60,8 @@ class Database:
                 conn = sqlite3.connect(self.db_path)
                 cursor = conn.cursor()
                 cursor.execute('''
-                    INSERT INTO signals (symbol, type, entry_price, sl_price, tp_price, reasons, status, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO signals (symbol, type, entry_price, sl_price, tp_price, reasons, status, created_at, poi_signature)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     signal['symbol'],
                     signal['type'],
@@ -69,7 +70,8 @@ class Database:
                     signal['tp'],
                     json.dumps(signal['reasons']),
                     signal['status'],
-                    signal['timestamp']
+                    signal['timestamp'],
+                    signal.get('poi_signature', '')
                 ))
                 last_id = cursor.lastrowid
                 conn.commit()
@@ -89,7 +91,8 @@ class Database:
                     "tp_price": signal['tp'],
                     "reasons": signal['reasons'],
                     "status": signal['status'],
-                    "created_at": signal['timestamp']
+                    "created_at": signal['timestamp'],
+                    "poi_signature": signal.get('poi_signature', '')
                 }).execute()
                 return data
             except Exception as e:
@@ -114,6 +117,9 @@ class Database:
                     r_dict['sl'] = r_dict.pop('sl_price', 0)
                     r_dict['tp'] = r_dict.pop('tp_price', 0)
                     r_dict['timestamp'] = r_dict.pop('created_at', '')
+                    # poi_signature is already mapped correctly if it exists, otherwise provide default
+                    if 'poi_signature' not in r_dict or r_dict['poi_signature'] is None:
+                        r_dict['poi_signature'] = ''
                     results.append(r_dict)
                 return results
             except Exception as e:
@@ -128,6 +134,8 @@ class Database:
                     r_dict['sl'] = r_dict.pop('sl_price', 0)
                     r_dict['tp'] = r_dict.pop('tp_price', 0)
                     r_dict['timestamp'] = r_dict.pop('created_at', '')
+                    if 'poi_signature' not in r_dict or r_dict['poi_signature'] is None:
+                        r_dict['poi_signature'] = ''
                     results.append(r_dict)
                 return results
             except Exception as e:
