@@ -166,7 +166,7 @@ class TradeManager:
                     
                 if missed:
                     print(f"[{symbol}] PENDING trade missed (hit TP before Entry). Cancelling.")
-                    trade['status'] = 'CANCELLED'
+                    trade['status'] = 'MISSED'
                     
                     if 'poi_signature' in trade:
                         try:
@@ -180,14 +180,14 @@ class TradeManager:
                             print(f"Error blacklisting zone on miss: {e}")
                             
                     if trade_id:
-                        self.db.update_signal_status(trade_id, 'CANCELLED')
+                        self.db.update_signal_status(trade_id, 'MISSED')
                     self.tracked_trades.remove(trade)
                     if self.on_trade_closed:
                         import asyncio
                         if asyncio.iscoroutinefunction(self.on_trade_closed):
-                            await self.on_trade_closed(trade, 'CANCELLED', 0)
+                            await self.on_trade_closed(trade, 'MISSED', 0)
                         else:
-                            self.on_trade_closed(trade, 'CANCELLED', 0)
+                            self.on_trade_closed(trade, 'MISSED', 0)
                     continue
 
                 # Check for entry trigger

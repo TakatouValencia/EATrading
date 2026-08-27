@@ -65,19 +65,21 @@ async def send_discord_trade_update(signal: dict, new_status: str, pnl: float):
     if not DISCORD_WEBHOOK_URL:
         return
         
-    color = 0x10B981 if new_status == "WIN" else (0x6B7280 if new_status == "CANCELLED" else 0xF43F5E)
-    status_icon = "✅" if new_status == "WIN" else ("🗑️" if new_status == "CANCELLED" else "❌")
+    color = 0x10B981 if new_status == "WIN" else (0x6B7280 if new_status in ["CANCELLED", "MISSED"] else 0xF43F5E)
+    status_icon = "✅" if new_status == "WIN" else ("🗑️" if new_status in ["CANCELLED", "MISSED"] else "❌")
     
     if new_status == "WIN":
         result_text = "Take Profit (TP) 🎯"
     elif new_status == "CANCELLED":
         result_text = "Cancelled / Expired 🗑️"
+    elif new_status == "MISSED":
+        result_text = "Missed (Hit TP Before Entry) 🏃💨"
     else:
         result_text = "Stop Loss (SL) 🛑"
     
     embed = {
         "title": f"{status_icon} Trade Closed: {signal.get('symbol')} {new_status} {status_icon}",
-        "description": f"The trade for {signal.get('symbol')} has hit its {result_text}." if new_status != "CANCELLED" else f"The trade for {signal.get('symbol')} has been {result_text}.",
+        "description": f"The trade for {signal.get('symbol')} has hit its {result_text}." if new_status not in ["CANCELLED", "MISSED"] else f"The trade for {signal.get('symbol')} has been {result_text}.",
         "color": color,
         "fields": [
             {"name": "Type", "value": f"**{signal.get('type')}**", "inline": True},

@@ -67,8 +67,8 @@ async def handle_trade_closed(trade: dict, new_status: str, pnl: float):
         "pnl": pnl
     }
     await manager.broadcast(json.dumps(payload))
-    # Notify Discord (only for WIN or LOSS, to avoid spamming CANCELLED)
-    if new_status in ["WIN", "LOSS", "PARTIAL_WIN"]:
+    # Notify Discord
+    if new_status in ["WIN", "LOSS", "PARTIAL_WIN", "MISSED"]:
         await send_discord_trade_update(trade, new_status, pnl)
 
 trade_manager.on_trade_closed = handle_trade_closed
@@ -273,6 +273,7 @@ async def run_smc_analysis(tick: dict):
                         amd_setups=amd_setups,
                         atr=atr,
                         reversal_patterns=reversal_patterns,
+                        db=db,
                         engine_ltf=engine_ltf
                     )
                 else:

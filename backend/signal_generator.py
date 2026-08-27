@@ -509,6 +509,23 @@ class SignalGenerator:
                 effective_tp_dist = max(2.0 * sl_distance, min_tp_dist)
                 tp_target = entry_target - effective_tp_dist
                 
+            # Prevent generating limit signals that are ALREADY missed
+            if exec_type == "LIMIT":
+                is_already_missed = False
+                if is_bullish and current_price >= tp_target:
+                    is_already_missed = True
+                elif not is_bullish and current_price <= tp_target:
+                    is_already_missed = True
+                    
+                if is_already_missed:
+                    print(f"[{symbol}] Skipping signal: Limit order already missed (Price {current_price} already hit TP {tp_target})")
+                    if poi_signature and db:
+                        try:
+                            db.save_blacklisted_zone(symbol, poi_signature, datetime.now().isoformat())
+                        except:
+                            pass
+                    return None
+                
             # --- LLM APPROVAL PHASE ---
             # Bypass LLM for Grade B to ensure fast and frequent signals
             if self.client and setup_grade in ["A", "A+"]:
