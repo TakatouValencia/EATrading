@@ -10,7 +10,8 @@ class Database:
     def __init__(self, db_name='local_trading.db'):
         self.supabase: Client = None
         self.use_sqlite = False
-        self.db_path = os.path.join(os.path.dirname(__file__), db_name)
+        data_dir = os.getenv("DATA_DIR", os.path.dirname(__file__))
+        self.db_path = os.path.join(data_dir, db_name)
         
         if SUPABASE_URL and SUPABASE_KEY:
             try:
