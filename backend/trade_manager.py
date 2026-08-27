@@ -295,7 +295,7 @@ class TradeManager:
                     
                     self._update_stats(won, pnl)
                     
-                    if new_status in ['LOSS', 'PARTIAL_WIN'] and 'poi_signature' in trade:
+                    if new_status in ['WIN', 'LOSS', 'PARTIAL_WIN'] and 'poi_signature' in trade:
                         try:
                             from datetime import datetime
                             self.db.save_blacklisted_zone(
