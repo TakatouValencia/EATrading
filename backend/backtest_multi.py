@@ -12,6 +12,8 @@ class DummyDB:
     def update_signal_status(self, *args, **kwargs): pass
     def save_signal(self, signal): return {"id": 1}
     def get_historical_signals(self, limit=50): return []
+    def save_blacklisted_zone(self, *args, **kwargs): pass
+    def get_blacklisted_zones(self, *args, **kwargs): return set()
 
 async def run_multi_backtest():
     print("Mulai Backtest Multi-Strategi XAU/USD (M15)...")

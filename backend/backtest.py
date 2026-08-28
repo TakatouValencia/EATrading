@@ -15,6 +15,8 @@ class DummyDB:
     def update_signal_status(self, *args, **kwargs): pass
     def save_signal(self, signal): return {"id": 1}
     def get_historical_signals(self, limit=50): return []
+    def save_blacklisted_zone(self, *args, **kwargs): pass
+    def get_blacklisted_zones(self, *args, **kwargs): return self.blacklisted_zones
     def save_blacklisted_zone(self, symbol, signature, invalidated_at):
         self.blacklisted_zones.add(signature)
     def get_blacklisted_zones(self, symbol=None):

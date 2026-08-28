@@ -1,0 +1,45 @@
+================================================================================
+LAPORAN KOMPARASI BACKTEST SMC (60 Hari)
+================================================================================
+
+[Pass A (Baseline 30 Pips)]
+  IS (Signals: 52 | Executed: 52)
+    Win Rate : 78.8% (41W / 11L)
+    Total PnL: 33.67 R
+    Avg R/Win: 0.82 R
+    Max DD   : 2.00 R
+    Max ConsL: 2
+  OOS (Signals: 154 | Executed: 153)
+    Win Rate : 84.3% (129W / 24L)
+    Total PnL: 115.75 R
+    Avg R/Win: 0.90 R
+    Max DD   : 4.83 R
+    Max ConsL: 3
+
+[Pass B (Spread Realistis 3 Pips)]
+  IS (Signals: 52 | Executed: 52)
+    Win Rate : 78.8% (41W / 11L)
+    Total PnL: 66.48 R
+    Avg R/Win: 1.62 R
+    Max DD   : 2.00 R
+    Max ConsL: 2
+  OOS (Signals: 154 | Executed: 153)
+    Win Rate : 83.7% (128W / 25L)
+    Total PnL: 214.24 R
+    Avg R/Win: 1.67 R
+    Max DD   : 3.26 R
+    Max ConsL: 3
+
+[Pass C (Full Parity Live)]
+  IS (Signals: 52 | Executed: 52)
+    Win Rate : 78.8% (41W / 11L)
+    Total PnL: 66.48 R
+    Avg R/Win: 1.62 R
+    Max DD   : 2.00 R
+    Max ConsL: 2
+  OOS (Signals: 63 | Executed: 63)
+    Win Rate : 81.0% (51W / 12L)
+    Total PnL: 83.32 R
+    Avg R/Win: 1.63 R
+    Max DD   : 3.26 R
+    Max ConsL: 3
