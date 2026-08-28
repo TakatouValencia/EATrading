@@ -90,6 +90,22 @@ class SignalGenerator:
         last_event = events[-1]
         is_bullish = "BULLISH" in last_event['type']
         
+        # Filter out blacklisted and rejected zones from incoming POI lists
+        blacklisted = db.get_blacklisted_zones(symbol) if db else set()
+        
+        # Helper to check if a signature is blacklisted or rejected
+        def is_banned(sig):
+            return (sig in blacklisted) or (sig in self.rejected_zones)
+
+        if obs:
+            obs = [ob for ob in obs if not is_banned(f"{symbol}_{ob['type']}_{ob['bottom']}_{ob['top']}")]
+        if fvgs:
+            fvgs = [fvg for fvg in fvgs if not is_banned(f"{symbol}_{fvg['type']}_{fvg['bottom']}_{fvg['top']}")]
+        if breakers:
+            breakers = [b for b in breakers if not is_banned(f"{symbol}_{b['type']}_{b['bottom']}_{b['top']}")]
+        if snr_zones:
+            snr_zones = [snr for snr in snr_zones if snr.get('level') is not None and not is_banned(f"{symbol}_SNR_{'SUPPORT' if is_bullish else 'RESISTANCE'}_{snr['level']}")]
+        
         # Check Confluence Criteria
         confluence_score = 0
         reasons = [last_event['type']]
@@ -313,8 +329,6 @@ class SignalGenerator:
 
         # Generate a unique POI signature to track rejected setups
         # poi_signature will be assigned later
-            
-        # Checking blacklist logic moved below
 
         valid_snr = False
         snr_level_used = None
@@ -353,17 +367,6 @@ class SignalGenerator:
             poi_signature = f"{symbol}_{valid_breaker['type']}_{valid_breaker['bottom']}_{valid_breaker['top']}"
         elif valid_snr and snr_level_used is not None:
             poi_signature = f"{symbol}_SNR_{'SUPPORT' if is_bullish else 'RESISTANCE'}_{snr_level_used}"
-
-        if poi_signature and poi_signature in self.rejected_zones:
-            # We already queried the LLM for this exact zone and got rejected. Do not retry.
-            return None
-            
-        # Check permanent database blacklist
-        if poi_signature and db:
-            blacklisted = db.get_blacklisted_zones(symbol)
-            if poi_signature in blacklisted:
-                print(f"[{symbol}] Skipping signal: Zone {poi_signature} is BLACKLISTED (Previously hit SL or BE).")
-                return {"status": "SKIPPED", "reasons": [f"Blacklisted Zone: {poi_signature}"]}
 
         # Criterion 7: Fibonacci OTE (Optimal Trade Entry)
         in_ote = False
