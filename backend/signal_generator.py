@@ -312,6 +312,38 @@ class SignalGenerator:
                         break
 
         # Generate a unique POI signature to track rejected setups
+        # poi_signature will be assigned later
+            
+        # Checking blacklist logic moved below
+
+        valid_snr = False
+        snr_level_used = None
+        if snr_zones:
+            for snr in snr_zones:
+                snr_level = snr.get('level')
+                if snr_level is None: continue
+                
+                if is_bullish and snr['type'] == "SUPPORT" and abs(current_price - snr_level) / current_price < 0.002:
+                    valid_snr = True
+                    snr_level_used = snr_level
+                    if snr.get('is_mnsr'):
+                        confluence_score += 2
+                        reasons.append("Major Support (MNSR)")
+                    else:
+                        confluence_score += 1
+                        reasons.append(f"{snr['strength']} Support")
+                    break
+                elif not is_bullish and snr['type'] == "RESISTANCE" and abs(current_price - snr_level) / current_price < 0.002:
+                    valid_snr = True
+                    snr_level_used = snr_level
+                    if snr.get('is_mnsr'):
+                        confluence_score += 2
+                        reasons.append("Major Resistance (MNSR)")
+                    else:
+                        confluence_score += 1
+                        reasons.append(f"{snr['strength']} Resistance")
+                    break
+
         poi_signature = None
         if valid_ob:
             poi_signature = f"{symbol}_{valid_ob['type']}_{valid_ob['bottom']}_{valid_ob['top']}"
@@ -319,7 +351,9 @@ class SignalGenerator:
             poi_signature = f"{symbol}_{valid_fvg['type']}_{valid_fvg['bottom']}_{valid_fvg['top']}"
         elif valid_breaker:
             poi_signature = f"{symbol}_{valid_breaker['type']}_{valid_breaker['bottom']}_{valid_breaker['top']}"
-            
+        elif valid_snr and snr_level_used is not None:
+            poi_signature = f"{symbol}_SNR_{'SUPPORT' if is_bullish else 'RESISTANCE'}_{snr_level_used}"
+
         if poi_signature and poi_signature in self.rejected_zones:
             # We already queried the LLM for this exact zone and got rejected. Do not retry.
             return None
@@ -330,31 +364,6 @@ class SignalGenerator:
             if poi_signature in blacklisted:
                 print(f"[{symbol}] Skipping signal: Zone {poi_signature} is BLACKLISTED (Previously hit SL or BE).")
                 return {"status": "SKIPPED", "reasons": [f"Blacklisted Zone: {poi_signature}"]}
-
-        valid_snr = False
-        if snr_zones:
-            for snr in snr_zones:
-                snr_level = snr.get('level')
-                if snr_level is None: continue
-                
-                if is_bullish and snr['type'] == "SUPPORT" and abs(current_price - snr_level) / current_price < 0.002:
-                    valid_snr = True
-                    if snr.get('is_mnsr'):
-                        confluence_score += 2
-                        reasons.append("Major Support (MNSR)")
-                    else:
-                        confluence_score += 1
-                        reasons.append(f"{snr['strength']} Support")
-                    break
-                elif not is_bullish and snr['type'] == "RESISTANCE" and abs(current_price - snr_level) / current_price < 0.002:
-                    valid_snr = True
-                    if snr.get('is_mnsr'):
-                        confluence_score += 2
-                        reasons.append("Major Resistance (MNSR)")
-                    else:
-                        confluence_score += 1
-                        reasons.append(f"{snr['strength']} Resistance")
-                    break
 
         # Criterion 7: Fibonacci OTE (Optimal Trade Entry)
         in_ote = False
