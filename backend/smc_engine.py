@@ -791,6 +791,81 @@ class SMCEngine:
                 
         return patterns
 
+    def calculate_adx(self, period: int = 14) -> Optional[float]:
+        """Calculate Average Directional Index (ADX)."""
+        if len(self.data) < period * 2:
+            return None
+            
+        trs = []
+        plus_dms = []
+        minus_dms = []
+        
+        for i in range(1, len(self.data)):
+            c = self.data[i]
+            p = self.data[i-1]
+            
+            tr = max(c['high'] - c['low'], abs(c['high'] - p['close']), abs(c['low'] - p['close']))
+            trs.append(tr)
+            
+            up_move = c['high'] - p['high']
+            down_move = p['low'] - c['low']
+            
+            plus_dm = up_move if (up_move > down_move and up_move > 0) else 0.0
+            minus_dm = down_move if (down_move > up_move and down_move > 0) else 0.0
+                
+            plus_dms.append(plus_dm)
+            minus_dms.append(minus_dm)
+            
+        if len(trs) < period:
+            return None
+            
+        smoothed_tr = sum(trs[:period])
+        smoothed_plus = sum(plus_dms[:period])
+        smoothed_minus = sum(minus_dms[:period])
+        
+        dxs = []
+        for i in range(period, len(trs)):
+            smoothed_tr = smoothed_tr - (smoothed_tr / period) + trs[i]
+            smoothed_plus = smoothed_plus - (smoothed_plus / period) + plus_dms[i]
+            smoothed_minus = smoothed_minus - (smoothed_minus / period) + minus_dms[i]
+            
+            plus_di = 100 * (smoothed_plus / smoothed_tr) if smoothed_tr > 0 else 0
+            minus_di = 100 * (smoothed_minus / smoothed_tr) if smoothed_tr > 0 else 0
+                
+            dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di) if (plus_di + minus_di) > 0 else 0
+            dxs.append(dx)
+            
+        if len(dxs) < period:
+            return None
+            
+        adx = sum(dxs[:period]) / period
+        for i in range(period, len(dxs)):
+            adx = ((adx * (period - 1)) + dxs[i]) / period
+            
+        return adx
+
+    def is_near_range_extreme(self, current_price: float, lookback: int = 50, threshold_pct: float = 0.1) -> bool:
+        """Check if current price is near the extreme (high/low) of the recent range."""
+        lookback = min(lookback, len(self.data))
+        if lookback < 2:
+            return False
+            
+        recent_data = self.data[-lookback:]
+        highest = max(c['high'] for c in recent_data)
+        lowest = min(c['low'] for c in recent_data)
+        
+        range_size = highest - lowest
+        if range_size == 0:
+            return False
+            
+        dist_to_high = highest - current_price
+        dist_to_low = current_price - lowest
+        
+        if dist_to_high <= range_size * threshold_pct or dist_to_low <= range_size * threshold_pct:
+            return True
+            
+        return False
+
     def get_recent_swing(self, is_bullish: bool, current_price: float, atr: float, lookback: int = 50) -> float:
         """
         Finds the most recent *significant* swing point to be used as SL basis.
