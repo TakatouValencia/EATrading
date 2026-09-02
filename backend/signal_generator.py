@@ -465,24 +465,24 @@ class SignalGenerator:
             if atr is None or atr <= 0:
                 atr = 1.0 if "XAU" in symbol else 0.001
             
-            # Adjusted TP Floor (target >= 150 pips)
+            # Adjusted TP Floor (target >= 100 pips)
             if "XAU" in symbol:
-                min_tp_dist = 15.0  # 150 pips
+                min_tp_dist = 10.0  # 100 pips
             elif "JPY" in symbol:
-                min_tp_dist = 1.5
+                min_tp_dist = 1.0
             else:
-                min_tp_dist = 0.0150
+                min_tp_dist = 0.0100
             
             # Minimum SL Floor and Max Cap
             if "XAU" in symbol:
-                min_sl_floor = 5.0  # 50 pips
-                max_sl_cap = 8.0    # 80 pips
+                min_sl_floor = 6.0  # 60 pips
+                max_sl_cap = 12.0   # 120 pips
             elif "JPY" in symbol:
-                min_sl_floor = 0.5
-                max_sl_cap = 0.8
+                min_sl_floor = 0.6
+                max_sl_cap = 1.2
             else:
-                min_sl_floor = 0.0050
-                max_sl_cap = 0.0080
+                min_sl_floor = 0.0060
+                max_sl_cap = 0.0120
                 
             # SL = Swing point +/- (1.0 * ATR buffer)
             # Find significant swing point
@@ -502,8 +502,8 @@ class SignalGenerator:
                     
                 sl_target = entry_target - sl_distance
                 
-                # Dynamic TP targeting at least 150 pips or 2R
-                effective_tp_dist = max(2.0 * sl_distance, min_tp_dist)
+                # Dynamic TP targeting at least 1.2R for higher Win Rate
+                effective_tp_dist = max(1.2 * sl_distance, min_tp_dist)
                 tp_target = entry_target + effective_tp_dist
             else:
                 sl_target_from_swing = swing_point + (1.0 * atr)
@@ -517,8 +517,8 @@ class SignalGenerator:
                     
                 sl_target = entry_target + sl_distance
                 
-                # Dynamic TP targeting at least 150 pips or 2R
-                effective_tp_dist = max(2.0 * sl_distance, min_tp_dist)
+                # Dynamic TP targeting at least 1.2R for higher Win Rate
+                effective_tp_dist = max(1.2 * sl_distance, min_tp_dist)
                 tp_target = entry_target - effective_tp_dist
                 
             # Prevent generating limit signals that are ALREADY missed
@@ -546,11 +546,11 @@ class SignalGenerator:
                 
                 try:
                     prompt = f"""
-You are an objective and skeptical trading risk analyst. 
+You are an elite institutional trading risk analyst evaluating an SMC setup.
 Review the following market context for a {signal_action} setup.
 Your primary task is to find reasons why this trade might FAIL or hit Stop Loss. 
 Consider factors such as low volume fakeouts, mitigated order blocks, contra-trend action on higher timeframes, and stop-loss hunting.
-Do NOT be biased by any checklist items. Evaluate the raw facts objectively.
+If the setup is average, reject it. ONLY approve it if the confluence is incredibly strong and the stop loss is placed safely outside the noise zone.
 
 Context:
 - Symbol: {symbol}
