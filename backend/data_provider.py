@@ -64,12 +64,13 @@ class DataProvider:
                 self.ws_connection = None
                 await asyncio.sleep(5)
 
-    def get_historical_data(self, symbol: str, interval: str = "5min", outputsize: int = 500) -> List[Dict]:
+    def get_historical_data(self, symbol: str, interval: str = "5min", outputsize: int = 500, use_csv: bool = True) -> List[Dict]:
         """Fetch historical data via CSV or REST API."""
         # Check if CSV exists first
-        csv_data = self.get_historical_data_from_csv(symbol, interval, outputsize)
-        if csv_data:
-            return csv_data
+        if use_csv:
+            csv_data = self.get_historical_data_from_csv(symbol, interval, outputsize)
+            if csv_data:
+                return csv_data
             
         if not self.api_key:
             # Return dummy data for development if no key

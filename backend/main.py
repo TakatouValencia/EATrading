@@ -92,10 +92,10 @@ async def run_smc_analysis(tick: dict):
                 
             if symbol not in app.state.market_data:
                 # Fetch initial historical data
-                df_h4 = data_provider.get_historical_data(symbol, interval="4h")
-                df_h1 = data_provider.get_historical_data(symbol, interval="1h")
-                df_htf = data_provider.get_historical_data(symbol, interval="15min")
-                df_ltf = data_provider.get_historical_data(symbol, interval="1min")
+                df_h4 = data_provider.get_historical_data(symbol, interval="4h", use_csv=False)
+                df_h1 = data_provider.get_historical_data(symbol, interval="1h", use_csv=False)
+                df_htf = data_provider.get_historical_data(symbol, interval="15min", use_csv=False)
+                df_ltf = data_provider.get_historical_data(symbol, interval="1min", use_csv=False)
                 
                 if not df_htf or not df_ltf or not df_h1 or not df_h4:
                     print(f"[{symbol}] Failed to fetch initial data.")
@@ -206,7 +206,7 @@ async def run_smc_analysis(tick: dict):
             dxy_trend = None
             if "XAU" in symbol:
                 if "DXY" not in app.state.market_data:
-                    df_dxy = data_provider.get_historical_data("DXY", interval="15min")
+                    df_dxy = data_provider.get_historical_data("DXY", interval="15min", use_csv=False)
                     if df_dxy:
                         app.state.market_data["DXY"] = df_dxy
                 
@@ -394,7 +394,7 @@ async def websocket_endpoint(websocket: WebSocket):
 async def get_historical(symbol: str, interval: str = "5min"):
     """Endpoint for frontend to fetch initial chart data."""
     # Fastapi treats slashes in path params carefully, symbol could be XAU/USD
-    historical_data = data_provider.get_historical_data(symbol, interval=interval)
+    historical_data = data_provider.get_historical_data(symbol, interval=interval, use_csv=False)
     if not historical_data:
         return {"data": []}
     
