@@ -3,43 +3,43 @@ LAPORAN KOMPARASI BACKTEST SMC (60 Hari)
 ================================================================================
 
 [Pass A (Baseline 30 Pips)]
-  IS (Signals: 52 | Executed: 52)
-    Win Rate : 78.8% (41W / 11L)
-    Total PnL: 33.67 R
-    Avg R/Win: 0.82 R
-    Max DD   : 2.00 R
-    Max ConsL: 2
-  OOS (Signals: 154 | Executed: 153)
-    Win Rate : 84.3% (129W / 24L)
-    Total PnL: 115.75 R
-    Avg R/Win: 0.90 R
-    Max DD   : 4.83 R
+  IS (Signals: 27 | Executed: 15)
+    Win Rate : 53.3% (8W / 7L)
+    Total PnL: -1.31 R
+    Avg R/Win: -0.16 R
+    Max DD   : 3.00 R
     Max ConsL: 3
+  OOS (Signals: 66 | Executed: 28)
+    Win Rate : 42.9% (12W / 16L)
+    Total PnL: -7.45 R
+    Avg R/Win: -0.62 R
+    Max DD   : 8.87 R
+    Max ConsL: 5
 
 [Pass B (Spread Realistis 3 Pips)]
-  IS (Signals: 52 | Executed: 52)
-    Win Rate : 78.8% (41W / 11L)
-    Total PnL: 66.48 R
-    Avg R/Win: 1.62 R
-    Max DD   : 2.00 R
-    Max ConsL: 2
-  OOS (Signals: 154 | Executed: 153)
-    Win Rate : 83.7% (128W / 25L)
-    Total PnL: 214.24 R
-    Avg R/Win: 1.67 R
-    Max DD   : 3.26 R
-    Max ConsL: 3
+  IS (Signals: 30 | Executed: 13)
+    Win Rate : 38.5% (5W / 8L)
+    Total PnL: -2.32 R
+    Avg R/Win: -0.46 R
+    Max DD   : 5.00 R
+    Max ConsL: 5
+  OOS (Signals: 66 | Executed: 27)
+    Win Rate : 37.0% (10W / 17L)
+    Total PnL: -5.63 R
+    Avg R/Win: -0.56 R
+    Max DD   : 8.59 R
+    Max ConsL: 6
 
 [Pass C (Full Parity Live)]
-  IS (Signals: 52 | Executed: 52)
-    Win Rate : 78.8% (41W / 11L)
-    Total PnL: 66.48 R
-    Avg R/Win: 1.62 R
+  IS (Signals: 31 | Executed: 4)
+    Win Rate : 25.0% (1W / 3L)
+    Total PnL: -1.86 R
+    Avg R/Win: -1.86 R
     Max DD   : 2.00 R
     Max ConsL: 2
-  OOS (Signals: 63 | Executed: 63)
-    Win Rate : 81.0% (51W / 12L)
-    Total PnL: 83.32 R
-    Avg R/Win: 1.63 R
-    Max DD   : 3.26 R
-    Max ConsL: 3
+  OOS (Signals: 23 | Executed: 3)
+    Win Rate : 66.7% (2W / 1L)
+    Total PnL: 1.27 R
+    Avg R/Win: 0.64 R
+    Max DD   : 1.00 R
+    Max ConsL: 1
