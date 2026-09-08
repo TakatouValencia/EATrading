@@ -23,15 +23,23 @@ class DataProvider:
 
     async def connect_websocket(self, symbols: list):
         """Connect to Twelve Data WebSocket and stream live prices."""
-        if not self.api_key:
+        api_key = self.api_key or os.getenv("TWELVE_DATA_API_KEY", "")
+        if not api_key:
             print("WARNING: Twelve Data API Key is missing.")
             return
 
+        ws_url = f"wss://ws.twelvedata.com/v1/quotes/price?apikey={api_key}"
         self.is_running = True
         
         while self.is_running:
             try:
-                async with websockets.connect(self.ws_url) as ws:
+                # Use robust ping and timeout settings to prevent unexpected disconnects
+                async with websockets.connect(
+                    ws_url,
+                    ping_interval=20,
+                    ping_timeout=20,
+                    close_timeout=10
+                ) as ws:
                     self.ws_connection = ws
                     
                     # Subscribe to symbols
@@ -46,22 +54,29 @@ class DataProvider:
                     
                     while self.is_running:
                         message = await ws.recv()
-                        data = json.loads(message)
-                        
-                        if data.get("event") == "price":
+                        try:
+                            data = json.loads(message)
+                        except Exception:
+                            continue
+                            
+                        event = data.get("event")
+                        if event == "heartbeat":
+                            continue
+                            
+                        if event == "price":
                             tick = {
                                 "symbol": data.get("symbol"),
                                 "price": float(data.get("price")),
                                 "timestamp": data.get("timestamp"),
                                 "source": "twelvedata_ws"
                             }
-                            # Trigger callbacks
+                            # Dispatch callback as an async task so ws.recv() is never blocked
                             for callback in self.callbacks:
-                                await callback(tick)
+                                asyncio.create_task(callback(tick))
                                 
             except Exception as e:
-                print(f"WebSocket connection error: {e}")
-                print("Attempting to reconnect in 5 seconds... (Fallback to REST if needed)")
+                print(f"WebSocket connection notice: {e}")
+                print("Reconnecting WebSocket in 5 seconds...")
                 self.ws_connection = None
                 await asyncio.sleep(5)
 

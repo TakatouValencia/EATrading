@@ -398,12 +398,28 @@ async def run_smc_analysis(tick: dict):
 
 @app.on_event("startup")
 async def startup_event():
-    # Start DataProvider in background
     symbols = ["XAU/USD"]
     data_provider.add_callback(run_smc_analysis)
     
-    # Start websocket connection to TwelveData asynchronously
-    asyncio.create_task(data_provider.connect_websocket(symbols))
+    async def init_market_and_connect():
+        for sym in symbols:
+            try:
+                print(f"[{sym}] Pre-loading historical candles...")
+                h4 = await asyncio.to_thread(data_provider.get_historical_data, sym, interval="4h", use_csv=False)
+                h1 = await asyncio.to_thread(data_provider.get_historical_data, sym, interval="1h", use_csv=False)
+                htf = await asyncio.to_thread(data_provider.get_historical_data, sym, interval="15min", use_csv=False)
+                ltf = await asyncio.to_thread(data_provider.get_historical_data, sym, interval="1min", use_csv=False)
+                if not hasattr(app.state, 'market_data'):
+                    app.state.market_data = {}
+                app.state.market_data[sym] = {"ltf": ltf, "htf": htf, "h1": h1, "h4": h4}
+                print(f"[{sym}] Pre-load complete! Ready for live stream.")
+            except Exception as e:
+                print(f"[{sym}] Pre-load warning: {e}")
+                
+        # Connect to TwelveData WebSocket
+        await data_provider.connect_websocket(symbols)
+        
+    asyncio.create_task(init_market_and_connect())
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
