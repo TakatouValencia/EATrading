@@ -299,6 +299,28 @@ async def run_smc_analysis(tick: dict):
                         db=db,
                         engine_ltf=engine_ltf
                     )
+                    # Process and register new signal atomically
+                    if signal and signal.get("status") not in ["SKIPPED", "REJECTED"]:
+                        is_identical = False
+                        for t in trade_manager.tracked_trades:
+                            if t['symbol'] == symbol and t['status'] in ['PENDING', 'ACTIVE']:
+                                t_entry = float(t.get('entry_price', t.get('entry', 0)))
+                                if t['type'] == signal['type'] and abs(t_entry - signal['entry']) < 0.5:
+                                    is_identical = True
+                                    break
+                                    
+                        if not is_identical:
+                            # Cancel old pending setups so we don't hold multiple limit orders
+                            await trade_manager.cancel_pending_trades(symbol)
+                            
+                            result = db.save_signal(signal)
+                            if result and "id" in result:
+                                signal["id"] = result["id"]
+                            trade_manager.add_trade(signal)
+                            
+                            # Send Discord notification (deduplicated by discord_notifier)
+                            await send_discord_alert(signal)
+                            
                 else:
                     # Circuit breaker triggered
                     if not getattr(app.state, 'circuit_breaker_alert_sent', False):
@@ -306,11 +328,15 @@ async def run_smc_analysis(tick: dict):
                         print(f"[{symbol}] 🚨 CIRCUIT BREAKER ACTIVE: {reason}")
                         await send_circuit_breaker_alert(reason)
             
+            await trade_manager.process_tick(tick)
+            
         # Outside the lock - Broadcast to clients
         payload = {
             "type": "TICK",
             "data": tick
         }
+        if signal and signal.get("status") not in ["SKIPPED", "REJECTED"]:
+            payload["signal"] = signal
         
         # Calculate freshness for tracked trades
         active_trades_data = []
@@ -320,18 +346,16 @@ async def run_smc_analysis(tick: dict):
             sl = float(t_copy.get('sl_price', t_copy.get('sl', 0)))
             ts = t_copy.get('timestamp')
             
-            # calculate age
             age_minutes = 0
             if ts:
                 try:
                     ts_obj = datetime.fromisoformat(ts.replace('Z', '+00:00'))
                     now_tz = datetime.now(ts_obj.tzinfo)
                     age_minutes = int((now_tz - ts_obj).total_seconds() / 60)
-                except Exception as e:
+                except Exception:
                     pass
             t_copy['age_minutes'] = age_minutes
             
-            # calculate freshness
             freshness = "FRESH"
             if t_copy['status'] == 'PENDING':
                 if age_minutes > 5:
@@ -339,56 +363,20 @@ async def run_smc_analysis(tick: dict):
                 
                 dist_to_sl = abs(entry - sl)
                 current_price = tick['price']
-                
-                # Check distance towards SL
                 if dist_to_sl > 0:
                     if "BUY" in t_copy['type']:
                         if current_price < entry:
                             moved_pct = (entry - current_price) / dist_to_sl
-                            if moved_pct >= 0.5:
-                                freshness = "INVALID"
-                            else:
-                                freshness = "VALID"
+                            freshness = "INVALID" if moved_pct >= 0.5 else "VALID"
                     else:
                         if current_price > entry:
                             moved_pct = (current_price - entry) / dist_to_sl
-                            if moved_pct >= 0.5:
-                                freshness = "INVALID"
-                            else:
-                                freshness = "VALID"
+                            freshness = "INVALID" if moved_pct >= 0.5 else "VALID"
                                 
             t_copy['freshness_status'] = freshness
             active_trades_data.append(t_copy)
             
         payload['active_trades'] = active_trades_data
-
-        
-        if signal and signal.get("status") not in ["SKIPPED", "REJECTED"]:
-            # Check if it's identical to an existing pending signal to avoid spam
-            is_identical = False
-            for t in trade_manager.tracked_trades:
-                if t['symbol'] == symbol and t['status'] == 'PENDING':
-                    t_entry = float(t.get('entry_price', t.get('entry', 0)))
-                    if t['type'] == signal['type'] and abs(t_entry - signal['entry']) < 0.0001:
-                        is_identical = True
-                        break
-                        
-            if not is_identical:
-                payload["signal"] = signal
-                
-                # Since we allow finding new setups while old ones are pending, 
-                # we must cancel the old pending setups so we don't end up with multiple limit orders.
-                await trade_manager.cancel_pending_trades(symbol)
-                
-                result = db.save_signal(signal)
-                if result and "id" in result:
-                    signal["id"] = result["id"]
-                trade_manager.add_trade(signal)
-                
-                # Send Discord notification (runs asynchronously in background)
-                await send_discord_alert(signal)
-            
-        await trade_manager.process_tick(tick)
             
         await manager.broadcast(json.dumps(payload))
         

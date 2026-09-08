@@ -5,6 +5,9 @@ import asyncio
 
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 
+# In-memory deduplication cache: (symbol, type, entry) -> timestamp
+_recent_alerts = {}
+
 def _send_webhook(payload):
     try:
         requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=5)
@@ -14,6 +17,30 @@ def _send_webhook(payload):
 async def send_discord_alert(signal: dict):
     if not DISCORD_WEBHOOK_URL:
         return
+        
+    symbol = signal.get('symbol', 'UNKNOWN')
+    sig_type = signal.get('type', 'UNKNOWN')
+    try:
+        entry = round(float(signal.get('entry', 0.0)), 2)
+    except Exception:
+        entry = signal.get('entry', 0.0)
+        
+    now_ts = datetime.now().timestamp()
+    dedup_key = (symbol, sig_type, entry)
+    
+    # Suppress duplicate alerts for identical setups within 5 minutes (300 seconds)
+    last_sent = _recent_alerts.get(dedup_key, 0)
+    if now_ts - last_sent < 300:
+        print(f"[DISCORD] Anti-spam active: Suppressed duplicate alert for {symbol} {sig_type} at {entry} (sent {now_ts - last_sent:.0f}s ago).")
+        return
+        
+    _recent_alerts[dedup_key] = now_ts
+    
+    # Prune old cache if too large
+    if len(_recent_alerts) > 50:
+        for k in list(_recent_alerts.keys()):
+            if now_ts - _recent_alerts[k] > 600:
+                del _recent_alerts[k]
         
     color = 0x10B981 if "BUY" in signal.get('type', '') else 0xF43F5E 
     
