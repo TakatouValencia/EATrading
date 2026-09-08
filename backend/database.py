@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import json
+from typing import List, Dict, Optional
 from supabase import create_client, Client
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
@@ -219,6 +220,49 @@ class Database:
             except Exception as e:
                 print(f"Error fetching blacklisted zones from Supabase: {e}")
         return blacklisted
+
+    def clear_blacklisted_zones(self, symbol: str = None) -> bool:
+        """Clear blacklisted zones for a symbol or entirely to reset false blacklists."""
+        if self.use_sqlite:
+            try:
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.cursor()
+                if symbol:
+                    cursor.execute('DELETE FROM blacklisted_zones WHERE symbol = ?', (symbol,))
+                else:
+                    cursor.execute('DELETE FROM blacklisted_zones')
+                conn.commit()
+                conn.close()
+                return True
+            except Exception as e:
+                print(f"Error clearing blacklisted zones from SQLite: {e}")
+                return False
+        elif self.supabase:
+            try:
+                query = self.supabase.table('blacklisted_zones').delete()
+                if symbol:
+                    query = query.eq('symbol', symbol)
+                query.neq('id', 0).execute()
+                return True
+            except Exception as e:
+                print(f"Error clearing blacklisted zones from Supabase: {e}")
+                return False
+        return False
+
+    def get_today_signals(self, target_date=None) -> List[Dict]:
+        """Fetch all signals created on the target date (default: today)."""
+        from datetime import datetime
+        if target_date is None:
+            target_date = datetime.now().date()
+        target_str = target_date.isoformat()
+        
+        all_signals = self.get_historical_signals(limit=100)
+        today_signals = []
+        for s in all_signals:
+            ts = s.get('timestamp', '')
+            if ts and ts.startswith(target_str):
+                today_signals.append(s)
+        return today_signals
 
     def get_statistics(self):
         """Calculate statistics like win rate."""

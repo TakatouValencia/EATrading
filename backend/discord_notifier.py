@@ -97,3 +97,32 @@ async def send_discord_trade_update(signal: dict, new_status: str, pnl: float):
     
     loop = asyncio.get_event_loop()
     loop.run_in_executor(None, _send_webhook, payload)
+
+async def send_circuit_breaker_alert(reason: str, details: str = ""):
+    """Send Discord alert when Risk Circuit Breaker triggers (e.g. 3 consecutive SLs)."""
+    if not DISCORD_WEBHOOK_URL:
+        return
+        
+    embed = {
+        "title": "🚨 CIRCUIT BREAKER TRIGGERED: TRADING PAUSED 🚨",
+        "description": f"**Alasan Proteksi**: {reason}\n\nAI menghentikan pengiriman sinyal baru untuk hari ini guna melindungi modal akun dan menghindari overtrading/revenge trading.",
+        "color": 0xEF4444, # Bright Red
+        "fields": [
+            {"name": "Status", "value": "🛑 **SISTEM DIKUNCI HINGGA BESOK**", "inline": True},
+            {"name": "Maksimal SL Beruntun", "value": "**3x Per Hari**", "inline": True},
+            {"name": "Catatan", "value": details or "Reset otomatis akan dilakukan saat pergantian hari pasar baru (00:00 UTC).", "inline": False}
+        ],
+        "footer": {
+            "text": "Novaire EA Risk Management Engine"
+        },
+        "timestamp": datetime.utcnow().isoformat()
+    }
+    
+    payload = {
+        "username": "Novaire EA Guard",
+        "content": "⚠️ @everyone **PERINGATAN MANAJEMEN RISIKO:** Batas Harian Tercapai!",
+        "embeds": [embed]
+    }
+    
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(None, _send_webhook, payload)

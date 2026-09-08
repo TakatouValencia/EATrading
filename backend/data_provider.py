@@ -15,6 +15,7 @@ class DataProvider:
         self.ws_connection = None
         self.callbacks = []
         self.is_running = False
+        self._cache = {} # (symbol, interval) -> (expires_at, data)
 
     def add_callback(self, callback: Callable):
         """Add a callback to be executed when new tick data arrives."""
@@ -65,15 +66,30 @@ class DataProvider:
                 await asyncio.sleep(5)
 
     def get_historical_data(self, symbol: str, interval: str = "5min", outputsize: int = 500, use_csv: bool = True) -> List[Dict]:
-        """Fetch historical data via CSV or REST API."""
+        """Fetch historical data via CSV, Cache, REST API, or yfinance."""
+        now = datetime.now()
+        cache_key = (symbol, interval)
+        if cache_key in self._cache:
+            expires_at, cached_data = self._cache[cache_key]
+            if now < expires_at and cached_data:
+                return [d.copy() for d in cached_data]
+
         # Check if CSV exists first
         if use_csv:
             csv_data = self.get_historical_data_from_csv(symbol, interval, outputsize)
             if csv_data:
+                ttl = timedelta(minutes=5)
+                self._cache[cache_key] = (now + ttl, csv_data)
                 return csv_data
             
+        # DXY is not supported on TwelveData free tier (causes 404 & wastes credits). Directly use yfinance with 1hr cache.
+        if symbol == "DXY":
+            dxy_data = self._generate_dummy_data("DXY", interval)
+            ttl = timedelta(minutes=60)
+            self._cache[cache_key] = (now + ttl, dxy_data)
+            return dxy_data
+
         if not self.api_key:
-            # Return dummy data for development if no key
             return self._generate_dummy_data(symbol, interval)
             
         url = f"{self.rest_url}/time_series"
@@ -85,7 +101,7 @@ class DataProvider:
         }
         
         try:
-            response = requests.get(url, params=params)
+            response = requests.get(url, params=params, timeout=10)
             data = response.json()
             
             if "values" in data:
@@ -103,14 +119,21 @@ class DataProvider:
                 
                 # Sort from oldest to newest
                 formatted_data.sort(key=lambda x: x['timestamp'])
+                # Dynamic TTL: M1=1min, M15=5min, H1=15min, H4=30min
+                ttl_mins = 1 if "1min" in interval else (5 if "15min" in interval else (15 if "1h" in interval else 30))
+                self._cache[cache_key] = (now + timedelta(minutes=ttl_mins), formatted_data)
                 return formatted_data
             else:
-                print(f"Error fetching historical data (fallback to dummy): {data}")
-                return self._generate_dummy_data(symbol, interval)
+                print(f"Error fetching historical data (fallback to yfinance): {data}")
+                res = self._generate_dummy_data(symbol, interval)
+                self._cache[cache_key] = (now + timedelta(minutes=10), res)
+                return res
                 
         except Exception as e:
-            print(f"REST API error (fallback to dummy): {e}")
-            return self._generate_dummy_data(symbol, interval)
+            print(f"REST API error (fallback to yfinance): {e}")
+            res = self._generate_dummy_data(symbol, interval)
+            self._cache[cache_key] = (now + timedelta(minutes=10), res)
+            return res
             
     def _generate_dummy_data(self, symbol: str, interval: str = "5min") -> List[Dict]:
         """Fetch real data via Yahoo Finance as fallback instead of dummy data."""

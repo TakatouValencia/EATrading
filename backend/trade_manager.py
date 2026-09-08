@@ -13,6 +13,34 @@ class TradeManager:
         self.current_trading_day = None
         self.current_time_str = None
         self._load_tracked_trades()
+        self._load_daily_stats()
+
+    def _load_daily_stats(self):
+        """Compute today's consecutive losses and PnL from database to persist state across restarts."""
+        try:
+            today = datetime.now().date()
+            self.current_trading_day = today
+            today_signals = self.db.get_today_signals(today)
+            # Sort signals by timestamp ascending
+            today_signals.sort(key=lambda x: x.get('timestamp', ''))
+            
+            consec_losses = 0
+            daily_pnl = 0.0
+            
+            for s in today_signals:
+                status = s.get('status')
+                pnl = float(s.get('pnl', 0.0) or 0.0)
+                daily_pnl += pnl
+                if status == 'WIN':
+                    consec_losses = 0
+                elif status == 'LOSS' or pnl < 0:
+                    consec_losses += 1
+            
+            self.consecutive_losses = consec_losses
+            self.daily_pnl = daily_pnl
+            print(f"[RISK] Initialized daily stats: PnL = {self.daily_pnl:.2f}R, Consecutive Losses = {self.consecutive_losses}/3")
+        except Exception as e:
+            print(f"[RISK] Error initializing daily stats: {e}")
 
     def _check_daily_reset(self):
         if not self.current_time_str:
@@ -32,6 +60,7 @@ class TradeManager:
             self.current_trading_day = today
             
         if today != self.current_trading_day:
+            print(f"[RISK] New trading day detected ({today}). Resetting daily stats.")
             self.daily_pnl = 0.0
             self.consecutive_losses = 0
             self.current_trading_day = today
@@ -41,17 +70,21 @@ class TradeManager:
         self.daily_pnl += pnl
         if won:
             self.consecutive_losses = 0
+            print(f"[RISK] Trade Won! Consecutive losses reset to 0. Daily PnL: {self.daily_pnl:.2f}R")
         else:
             if pnl < 0:
                 self.consecutive_losses += 1
+                print(f"[RISK] Trade Lost (SL). Consecutive losses: {self.consecutive_losses}/3. Daily PnL: {self.daily_pnl:.2f}R")
+                if self.consecutive_losses >= 3:
+                    print(f"🚨 [CIRCUIT BREAKER TRIGGERED] 3 Consecutive Stop Losses hit today! Trading is PAUSED until tomorrow.")
 
     def check_trading_allowed(self) -> tuple[bool, str]:
         """Check if trading is allowed based on psychological risk limits."""
         self._check_daily_reset()
         if self.daily_pnl <= -3.0: # -3% max drawdown (assuming 1R = 1%)
-            return False, f"Daily Drawdown Limit Reached ({self.daily_pnl}R)"
+            return False, f"Daily Drawdown Limit Reached ({self.daily_pnl:.2f}R / -3.0R)"
         if self.consecutive_losses >= 3: # 3 max consecutive losses
-            return False, f"Max Consecutive Losses Reached ({self.consecutive_losses})"
+            return False, f"Max Consecutive Losses Reached ({self.consecutive_losses}/3 SLs today). Trading paused."
         return True, "Allowed"
 
     def _load_tracked_trades(self):

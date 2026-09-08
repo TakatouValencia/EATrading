@@ -18,7 +18,7 @@ from signal_generator import SignalGenerator
 from database import Database
 from trade_manager import TradeManager
 import settings_manager
-from discord_notifier import send_discord_alert, send_discord_trade_update
+from discord_notifier import send_discord_alert, send_discord_trade_update, send_circuit_breaker_alert
 
 app = FastAPI(title="Novaire EA SMC Engine")
 
@@ -81,6 +81,18 @@ async def run_smc_analysis(tick: dict):
     """
     try:
         symbol = tick['symbol']
+        tick_time = tick.get('timestamp')
+        tick_price = float(tick['price'])
+        
+        if isinstance(tick_time, (int, float)):
+            tick_time_obj = datetime.fromtimestamp(tick_time)
+        elif isinstance(tick_time, str):
+            try:
+                tick_time_obj = datetime.fromisoformat(tick_time.replace('Z', '+00:00'))
+            except Exception:
+                tick_time_obj = datetime.now()
+        else:
+            tick_time_obj = tick_time if hasattr(tick_time, 'minute') else datetime.now()
         
         if not hasattr(app.state, 'market_data_lock'):
             app.state.market_data_lock = asyncio.Lock()
@@ -91,17 +103,17 @@ async def run_smc_analysis(tick: dict):
                 app.state.market_data = {}
                 
             if symbol not in app.state.market_data:
-                # Fetch initial historical data
-                df_h4 = data_provider.get_historical_data(symbol, interval="4h", use_csv=False)
-                df_h1 = data_provider.get_historical_data(symbol, interval="1h", use_csv=False)
-                df_htf = data_provider.get_historical_data(symbol, interval="15min", use_csv=False)
-                df_ltf = data_provider.get_historical_data(symbol, interval="1min", use_csv=False)
+                # Fetch initial historical data in threadpool to keep event loop free
+                df_h4 = await asyncio.to_thread(data_provider.get_historical_data, symbol, interval="4h", use_csv=False)
+                df_h1 = await asyncio.to_thread(data_provider.get_historical_data, symbol, interval="1h", use_csv=False)
+                df_htf = await asyncio.to_thread(data_provider.get_historical_data, symbol, interval="15min", use_csv=False)
+                df_ltf = await asyncio.to_thread(data_provider.get_historical_data, symbol, interval="1min", use_csv=False)
                 
                 if not df_htf or not df_ltf or not df_h1 or not df_h4:
                     print(f"[{symbol}] Failed to fetch initial data.")
                     return
                     
-                print(f"[{symbol}] Got {len(df_h4)} H4, {len(df_h1)} H1, {len(df_htf)} M15, {len(df_ltf)} M1 candles.")
+                print(f"[{symbol}] Initialized data cache: {len(df_h4)} H4, {len(df_h1)} H1, {len(df_htf)} M15, {len(df_ltf)} M1 candles.")
                 app.state.market_data[symbol] = {"ltf": df_ltf, "htf": df_htf, "h1": df_h1, "h4": df_h4}
             else:
                 df_ltf = app.state.market_data[symbol]["ltf"]
@@ -109,20 +121,6 @@ async def run_smc_analysis(tick: dict):
                 df_h1 = app.state.market_data[symbol]["h1"]
                 df_h4 = app.state.market_data[symbol]["h4"]
                 
-                # Proper tick to candle aggregation logic
-                tick_time = tick.get('timestamp')
-                tick_price = tick['price']
-                
-                if isinstance(tick_time, (int, float)):
-                    tick_time_obj = datetime.fromtimestamp(tick_time)
-                elif isinstance(tick_time, str):
-                    try:
-                        tick_time_obj = datetime.fromisoformat(tick_time.replace('Z', '+00:00'))
-                    except:
-                        tick_time_obj = datetime.now()
-                else:
-                    tick_time_obj = tick_time if hasattr(tick_time, 'minute') else datetime.now()
-                    
                 # --- Update LTF (1min) ---
                 if df_ltf:
                     last_ltf = df_ltf[-1]
@@ -130,7 +128,7 @@ async def run_smc_analysis(tick: dict):
                     if isinstance(last_ltf_time, str):
                         try:
                             last_ltf_time_obj = datetime.fromisoformat(last_ltf_time.replace('Z', '+00:00'))
-                        except:
+                        except Exception:
                             last_ltf_time_obj = datetime.now()
                     else:
                         last_ltf_time_obj = last_ltf_time
@@ -156,7 +154,7 @@ async def run_smc_analysis(tick: dict):
                     if isinstance(last_htf_time, str):
                         try:
                             last_htf_time_obj = datetime.fromisoformat(last_htf_time.replace('Z', '+00:00'))
-                        except:
+                        except Exception:
                             last_htf_time_obj = datetime.now()
                     else:
                         last_htf_time_obj = last_htf_time
@@ -174,25 +172,34 @@ async def run_smc_analysis(tick: dict):
                         }
                         df_htf.append(new_htf_candle)
                         if len(df_htf) > 1000: df_htf.pop(0)
+                        
+                # Update H1 and H4 candle prices in-memory
+                if df_h1:
+                    df_h1[-1]['close'] = tick_price
+                    df_h1[-1]['high'] = max(df_h1[-1]['high'], tick_price)
+                    df_h1[-1]['low'] = min(df_h1[-1]['low'], tick_price)
+                if df_h4:
+                    df_h4[-1]['close'] = tick_price
+                    df_h4[-1]['high'] = max(df_h4[-1]['high'], tick_price)
+                    df_h4[-1]['low'] = min(df_h4[-1]['low'], tick_price)
                 
-            # Run SMC Engine on LTF
+            # Run SMC Engine on LTF (M1)
             engine_ltf = SMCEngine(df_ltf)
             events = engine_ltf.detect_bos_choch()
-            # We don't use LTF FVG/OB for entry zones anymore, only HTF
-            fvgs = []
-            obs = []
             sweeps = engine_ltf.detect_liquidity_sweeps()
             snr_zones = engine_ltf.detect_support_resistance()
             snd_zones = engine_ltf.detect_supply_demand()
             pd_zones = engine_ltf.detect_premium_discount()
-            breakers = [] # Moved to HTF
             fibo_ote = engine_ltf.detect_fibo_ote()
             poc_price = engine_ltf.calculate_volume_profile(lookback=100)
             amd_setups = engine_ltf.detect_amd()
             
-            # Run SMC Engine on HTF to get trend
+            # Run SMC Engine on HTF (M15)
             engine_htf = SMCEngine(df_htf)
             htf_events = engine_htf.detect_bos_choch()
+            m15_obs = engine_htf.detect_order_blocks(htf_events)
+            m15_fvgs = engine_htf.detect_fvg()
+            m15_breakers = engine_htf.detect_breaker_blocks(htf_events)
             
             htf_trend = None
             if htf_events:
@@ -202,13 +209,42 @@ async def run_smc_analysis(tick: dict):
                 elif "BEARISH" in last_htf_event['type']:
                     htf_trend = "BEARISH"
             
-            # Fetch DXY Trend for Intermarket Correlation if Gold
+            # Run SMC Engine on H4
+            h4_trend = None
+            if df_h4:
+                h4_events = SMCEngine(df_h4).detect_bos_choch()
+                if h4_events:
+                    h4_trend = "BULLISH" if "BULLISH" in h4_events[-1]['type'] else "BEARISH"
+                    
+            # Run SMC Engine on H1
+            h1_trend = None
+            h1_obs = []
+            h1_fvgs = []
+            h1_breakers = []
+            if df_h1:
+                h1_engine = SMCEngine(df_h1)
+                h1_events = h1_engine.detect_bos_choch()
+                h1_fvgs = h1_engine.detect_fvg()
+                h1_obs = h1_engine.detect_order_blocks(h1_events)
+                h1_breakers = h1_engine.detect_breaker_blocks(h1_events)
+                if h1_events:
+                    h1_trend = "BULLISH" if "BULLISH" in h1_events[-1]['type'] else "BEARISH"
+
+            # Combine M15 and H1 institutional POIs
+            combined_obs = h1_obs + m15_obs
+            combined_fvgs = h1_fvgs + m15_fvgs
+            combined_breakers = h1_breakers + m15_breakers
+
+            # DXY Trend for Intermarket Correlation (using cached/async data)
             dxy_trend = None
             if "XAU" in symbol:
                 if "DXY" not in app.state.market_data:
-                    df_dxy = data_provider.get_historical_data("DXY", interval="15min", use_csv=False)
-                    if df_dxy:
-                        app.state.market_data["DXY"] = df_dxy
+                    try:
+                        df_dxy = await asyncio.to_thread(data_provider.get_historical_data, "DXY", interval="15min", use_csv=False)
+                        if df_dxy:
+                            app.state.market_data["DXY"] = df_dxy
+                    except Exception as e:
+                        print(f"Note: DXY fetch skipped: {e}")
                 
                 if "DXY" in app.state.market_data:
                     df_dxy = app.state.market_data["DXY"]
@@ -217,47 +253,34 @@ async def run_smc_analysis(tick: dict):
                     if dxy_events:
                         dxy_trend = "BULLISH" if "BULLISH" in dxy_events[-1]['type'] else "BEARISH"
             
-            # Check for Signals ONLY if we don't already have an ACTIVE or PENDING trade for this symbol
-            # We want to focus on 1 signal at a time.
-            signal = None
-            if not trade_manager.has_active_trade(symbol):
-                
-                # Apply Risk Management / Circuit Breaker
-                trade_manager.current_time_str = tick_time_obj.isoformat()
-                trade_manager._check_daily_reset()
-                allowed, reason = trade_manager.check_trading_allowed()
-                
-                if allowed:
-                    # Run SMC Engine on H4
-                    h4_trend = None
-                    if df_h4:
-                        h4_events = SMCEngine(df_h4).detect_bos_choch()
-                        if h4_events:
-                            h4_trend = "BULLISH" if "BULLISH" in h4_events[-1]['type'] else "BEARISH"
-                            
-                    # Run SMC Engine on H1
-                    h1_trend = None
-                    htf_obs = []
-                    htf_fvgs = []
-                    if df_h1:
-                        h1_engine = SMCEngine(df_h1)
-                        h1_events = h1_engine.detect_bos_choch()
-                        htf_fvgs = h1_engine.detect_fvg()
-                        htf_obs = h1_engine.detect_order_blocks(h1_events)
-                        htf_breakers = h1_engine.detect_breaker_blocks(h1_events)
-                        if h1_events:
-                            h1_trend = "BULLISH" if "BULLISH" in h1_events[-1]['type'] else "BEARISH"
+            # Apply Risk Management / Circuit Breaker Check
+            trade_manager.current_time_str = tick_time_obj.isoformat()
+            trade_manager._check_daily_reset()
+            allowed, reason = trade_manager.check_trading_allowed()
 
+            # Periodic Scanning Heartbeat (Every 30 seconds per symbol)
+            if not hasattr(app.state, 'last_scan_log'):
+                app.state.last_scan_log = {}
+            now_sec = datetime.now().timestamp()
+            if now_sec - app.state.last_scan_log.get(symbol, 0) >= 30:
+                app.state.last_scan_log[symbol] = now_sec
+                active_c = len([t for t in trade_manager.tracked_trades if t.get('symbol') == symbol])
+                cb_status = "LOCKED" if not allowed else f"OK ({trade_manager.consecutive_losses}/3 SLs, {trade_manager.daily_pnl:.1f}R)"
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] [SCANNING] {symbol}: {tick_price:.2f} | H4: {h4_trend or 'N/A'} | H1: {h1_trend or 'N/A'} | M15: {htf_trend or 'N/A'} | Active: {active_c} | Circuit Breaker: {cb_status}")
+
+            # Check for Signals ONLY if we don't already have an ACTIVE trade for this symbol
+            signal = None
+            if not trade_manager.has_running_trade(symbol):
+                if allowed:
                     atr = engine_ltf.calculate_atr(period=14)
                     reversal_patterns = engine_ltf.detect_reversal_patterns()
                     
-                    # Now evaluate_confluence is async (calls Gemini LLM)
                     signal = await signal_generator.evaluate_confluence(
                         symbol=symbol,
-                        current_price=tick['price'],
+                        current_price=tick_price,
                         events=events,
-                        obs=htf_obs,
-                        fvgs=htf_fvgs,
+                        obs=combined_obs,
+                        fvgs=combined_fvgs,
                         sweeps=sweeps,
                         htf_trend=htf_trend,
                         h1_trend=h1_trend,
@@ -265,7 +288,7 @@ async def run_smc_analysis(tick: dict):
                         snr_zones=snr_zones,
                         snd_zones=snd_zones,
                         pd_zones=pd_zones,
-                        breakers=htf_breakers,
+                        breakers=combined_breakers,
                         dxy_trend=dxy_trend,
                         fibo_ote=fibo_ote,
                         poc_price=poc_price,
@@ -277,9 +300,11 @@ async def run_smc_analysis(tick: dict):
                         engine_ltf=engine_ltf
                     )
                 else:
-                    # Print circuit breaker warning occasionally
-                    if tick_time_obj.minute % 15 == 0:
-                        print(f"[{symbol}] TRADING PAUSED (Circuit Breaker): {reason}")
+                    # Circuit breaker triggered
+                    if not getattr(app.state, 'circuit_breaker_alert_sent', False):
+                        app.state.circuit_breaker_alert_sent = True
+                        print(f"[{symbol}] 🚨 CIRCUIT BREAKER ACTIVE: {reason}")
+                        await send_circuit_breaker_alert(reason)
             
         # Outside the lock - Broadcast to clients
         payload = {
