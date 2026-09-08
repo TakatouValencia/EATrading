@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+pydantic
+python-dotenv
+websockets
+requests
+supabase
+openai
+yfinance
+pandas

@@ -597,8 +597,11 @@ async def get_dashboard_data():
     }
     return dashboard_data
 
-# Mount frontend at the root (must be after all API routes)
-app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
+# Mount frontend (works both locally and in cloud container)
+frontend_dir = os.path.join(os.path.dirname(__file__), "frontend")
+if not os.path.exists(frontend_dir):
+    frontend_dir = "frontend"
+app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
 
 if __name__ == "__main__":
     import uvicorn
