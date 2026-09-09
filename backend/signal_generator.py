@@ -98,6 +98,7 @@ class SignalGenerator:
         req_min_sl_pips = float(settings.get("min_sl_pips", 25.0))
         req_min_tp_pips = float(settings.get("min_tp_pips", 150.0))
         req_max_tp_pips = float(settings.get("max_tp_pips", 200.0))
+        req_partial_tp_pips = float(settings.get("partial_tp_pips", 70.0))
 
         if atr is None or atr <= 0:
             atr = 1.5 if is_xau else 0.0010
@@ -107,6 +108,7 @@ class SignalGenerator:
         max_sl_cap = req_max_sl_pips * pip_unit    # Strictly 70 pips (7.0 for Gold)
         min_tp_dist = req_min_tp_pips * pip_unit   # 150 pips (15.0 for Gold)
         max_tp_dist = req_max_tp_pips * pip_unit   # 200 pips (20.0 for Gold)
+        partial_tp_dist = req_partial_tp_pips * pip_unit # 70 pips (7.0 for Gold)
         max_limit_distance = 15.0 if is_xau else 0.0150 # Tight limit placement for low TF
 
         # Resolve Low Timeframe trends (M15 Macro, M5 Intermediate)
@@ -305,6 +307,7 @@ class SignalGenerator:
                     sl_target = entry_target - sl_dist
                     effective_tp = max(min_tp_dist, min(max_tp_dist, max(2.5 * sl_dist, min_tp_dist)))
                     tp_target = entry_target + effective_tp
+                    tp1_target = entry_target + partial_tp_dist
                     reasons.append(f"Entry: Inside Bullish {poi_type} ({poi_bottom:.2f} - {poi_top:.2f})")
                 else:
                     # Approaching POI -> Pending Limit Order
@@ -320,6 +323,7 @@ class SignalGenerator:
                     sl_target = entry_target - sl_dist
                     effective_tp = max(min_tp_dist, min(max_tp_dist, max(2.5 * sl_dist, min_tp_dist)))
                     tp_target = entry_target + effective_tp
+                    tp1_target = entry_target + partial_tp_dist
                     reasons.append(f"Setup: Bullish {poi_type} Demand Zone ({poi_bottom:.2f} - {poi_top:.2f})")
 
             else:
@@ -368,6 +372,7 @@ class SignalGenerator:
                     sl_target = entry_target + sl_dist
                     effective_tp = max(min_tp_dist, min(max_tp_dist, max(2.5 * sl_dist, min_tp_dist)))
                     tp_target = entry_target - effective_tp
+                    tp1_target = entry_target - partial_tp_dist
                     reasons.append(f"Entry: Inside Bearish {poi_type} ({poi_bottom:.2f} - {poi_top:.2f})")
                 else:
                     # Approaching POI -> Pending Limit Order
@@ -383,6 +388,7 @@ class SignalGenerator:
                     sl_target = entry_target + sl_dist
                     effective_tp = max(min_tp_dist, min(max_tp_dist, max(2.5 * sl_dist, min_tp_dist)))
                     tp_target = entry_target - effective_tp
+                    tp1_target = entry_target - partial_tp_dist
                     reasons.append(f"Setup: Bearish {poi_type} Supply Zone ({poi_bottom:.2f} - {poi_top:.2f})")
 
             # Point bonus for POI
@@ -453,6 +459,8 @@ class SignalGenerator:
                 "entry": entry_target,
                 "sl": sl_target,
                 "tp": tp_target,
+                "tp1": tp1_target,
+                "tp2": tp_target,
                 "reasons": reasons,
                 "grade": setup_grade,
                 "score": confluence_score,
@@ -488,6 +496,8 @@ class SignalGenerator:
         entry_val = round(best['entry'], decimal_places)
         sl_val = round(best['sl'], decimal_places)
         tp_val = round(best['tp'], decimal_places)
+        tp1_val = round(best.get('tp1', best['tp']), decimal_places)
+        tp2_val = round(best.get('tp2', best['tp']), decimal_places)
 
         sl_pips = calculate_pips(symbol, entry_val, sl_val)
         lot_size = round(calculate_lot_size(acc_balance, final_risk_pct, sl_pips, symbol), 2)
@@ -495,6 +505,7 @@ class SignalGenerator:
         # Build final signal object
         ui_badge = "[UI_BADGE:ENTRY ZONE ACTIVE] Harga di zona, siap eksekusi." if best['signal_type'] == "CONFIRMED" else "[UI_BADGE:PENDING LIMIT ORDER] Pasang pending limit, tunggu jemputan."
         reasons_list = [ui_badge] + best['reasons']
+        reasons_list.append(f"TP1 (70p): {tp1_val} (Amankan 50% Lot & SL ke BE) | TP2 (Swing): {tp2_val}")
         reasons_list.append(f"SMC Grade: {best['grade']} (Confluence Score: {best['score']}/10, R:R: 1:{best['rr_ratio']})")
 
         signal = {
@@ -505,6 +516,9 @@ class SignalGenerator:
             "entry": entry_val,
             "sl": sl_val,
             "tp": tp_val,
+            "tp1": tp1_val,
+            "tp2": tp2_val,
+            "partial_tp_pips": req_partial_tp_pips,
             "lot_size": lot_size,
             "reasons": reasons_list,
             "status": "PENDING",
@@ -514,7 +528,7 @@ class SignalGenerator:
             "rr_ratio": best['rr_ratio']
         }
 
-        print(f"\n{'='*55}\n[SMC ENGINE] Valid Setup Found for {symbol}!\nType: {signal['type']} ({signal['signal_type']}) | Grade: {signal['grade']} (Score: {best['score']})\nEntry: {signal['entry']} | SL: {signal['sl']} | TP: {signal['tp']} (R:R 1:{best['rr_ratio']})\n{'='*55}\n")
+        print(f"\n{'='*55}\n[SMC ENGINE] Valid Setup Found for {symbol}!\nType: {signal['type']} ({signal['signal_type']}) | Grade: {signal['grade']} (Score: {best['score']})\nEntry: {signal['entry']} | SL: {signal['sl']} | TP1: {signal['tp1']} (70p) | TP2: {signal['tp']} (Swing)\n{'='*55}\n")
 
         self.active_signals[symbol] = signal
         self.cooldowns[symbol] = now_time + timedelta(minutes=self.cooldown_minutes)

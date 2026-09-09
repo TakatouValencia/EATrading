@@ -50,7 +50,8 @@ async def send_discord_alert(signal: dict):
         "color": color,
         "fields": [
             {"name": "Entry Price", "value": f"**{signal.get('entry')}**", "inline": True},
-            {"name": "Take Profit (TP)", "value": f"**{signal.get('tp')}**", "inline": True},
+            {"name": "TP1 (Amankan 50%)", "value": f"**{signal.get('tp1', signal.get('tp'))}** (+70p)", "inline": True},
+            {"name": "TP2 (Swing Target)", "value": f"**{signal.get('tp2', signal.get('tp'))}**", "inline": True},
             {"name": "Stop Loss (SL)", "value": f"**{signal.get('sl')}**", "inline": True},
         ],
         "footer": {
@@ -71,6 +72,7 @@ async def send_discord_alert(signal: dict):
     entry = float(signal.get('entry', 0))
     sl = float(signal.get('sl', 0))
     tp = float(signal.get('tp', 0))
+    tp1 = float(signal.get('tp1', tp))
     is_xau = "XAU" in symbol
     pip_unit = 0.10 if is_xau else 0.0001
     sl_pips = abs(entry - sl) / pip_unit
@@ -78,8 +80,8 @@ async def send_discord_alert(signal: dict):
     be_target = entry + (5.0 if is_xau else 0.0050) if "BUY" in signal.get('type', '') else entry - (5.0 if is_xau else 0.0050)
     
     embed["fields"].append({
-        "name": "⚙️ Execution & Risk Guide (Low TF: M15/M5/M1)", 
-        "value": f"• **Take Profit**: **{tp_pips:.0f} Pips** ({tp:.2f})\n• **Stop Loss**: **{sl_pips:.0f} Pips** ({sl:.2f}, Maks 70 Pips)\n• **Proteksi BE**: Geser SL ke **Entry ({entry:.2f})** saat harga capai **{be_target:.2f} (+50 pips)**.", 
+        "name": "⚙️ Execution & Risk Guide (Partial TP Engine)", 
+        "value": f"• **TP1 (+70 Pips)**: **{tp1:.2f}** -> Amankan 50% lot dan otomatis geser SL ke BE!\n• **TP2 (Runner)**: **{tp_pips:.0f} Pips** ({tp:.2f}) -> Biarkan 50% lot lari tanpa risiko.\n• **Stop Loss**: **{sl_pips:.0f} Pips** ({sl:.2f}, Maks 70 Pips)\n• **Proteksi BE**: Geser SL ke **Entry ({entry:.2f})** saat harga capai **{be_target:.2f} (+50 pips)**.", 
         "inline": False
     })
         

@@ -244,16 +244,18 @@ async def run_2month_backtest():
                     await tm.cancel_pending_trades("XAU/USD")
                     tm.add_trade(sig)
 
-        # Proses tick dengan pergerakan High, Low, Close candle saat ini
-        await tm.process_tick({'symbol': 'XAU/USD', 'price': curr_candle['high'], 'timestamp': curr_time})
-        await tm.process_tick({'symbol': 'XAU/USD', 'price': curr_candle['low'], 'timestamp': curr_time})
+        # Proses tick dengan pergerakan High, Low, Close candle saat ini secara realistis
+        is_green = curr_candle['close'] >= curr_candle['open']
+        p1 = curr_candle['low'] if is_green else curr_candle['high']
+        p2 = curr_candle['high'] if is_green else curr_candle['low']
+        await tm.process_tick({'symbol': 'XAU/USD', 'price': p1, 'timestamp': curr_time})
+        await tm.process_tick({'symbol': 'XAU/USD', 'price': p2, 'timestamp': curr_time})
         await tm.process_tick({'symbol': 'XAU/USD', 'price': curr_candle['close'], 'timestamp': curr_time})
 
     print("\n[4/4] Menghitung Statistik & Laporan...")
     total_completed = stats['WIN'] + stats['LOSS'] + stats['BREAK_EVEN']
     decisive_trades = stats['WIN'] + stats['LOSS'] # trade yang bukan BE
     win_rate = (stats['WIN'] / decisive_trades * 100) if decisive_trades > 0 else 0.0
-    overall_win_rate = (stats['WIN'] / total_completed * 100) if total_completed > 0 else 0.0
 
     # Drawdown calculation
     equity = 0.0
@@ -269,22 +271,23 @@ async def run_2month_backtest():
 
     report = f"""
 ======================================================================
-              HASIL BACKTEST 2 BULAN XAU/USD (M15, M5, M1)
+     HASIL BACKTEST 2 BULAN XAU/USD (PARTIAL TP + AUTO BREAK-EVEN)
 ======================================================================
 Periode Pengujian      : {start_date} s/d {end_date} (60 Hari)
-Target Take Profit     : 150 - 200 Pips ($15.00 - $20.00)
+Target Take Profit 1   : +70 Pips ($7.00) (Kunci 50% Lot & SL ke BE)
+Target Take Profit 2   : 150 - 200 Pips ($15.00 - $20.00) (Runner Swing)
 Maksimal Stop Loss     : Maksimal 70 Pips ($7.00)
-Proteksi Break-Even    : Aktif pada +50 Pips Profit (SL geser ke Entry)
+Proteksi Break-Even    : Otomatis di Level TP1 (+70 Pips) atau +50 Pips
 Circuit Breaker        : Maksimal 3 Consecutive Losses per Hari
 ----------------------------------------------------------------------
 Total Setup Selesai    : {total_completed}
-- Take Profit (WIN)    : {stats['WIN']} trade
+- Take Profit (WIN)    : {stats['WIN']} trade (Termasuk Partial TP1 Secured)
 - Stop Loss (LOSS)     : {stats['LOSS']} trade
 - Break-Even (BE / 0)  : {stats['BREAK_EVEN']} trade (Terlindungi dari kerugian)
 - Cancelled / Expired  : {stats.get('CANCELLED', 0)}
 - Missed Pending       : {stats.get('MISSED', 0)}
 ----------------------------------------------------------------------
-Win Rate (Decisive)    : {win_rate:.2f}% (Hanya menghitung WIN vs LOSS)
+Win Rate (Decisive)    : {win_rate:.2f}% (WIN vs LOSS)
 Total Net Profit       : {stats['total_pnl']:+.2f} R
 Max Drawdown           : {max_dd:.2f} R
 Rata-rata R:R          : 1 : 2.50+
@@ -296,8 +299,7 @@ Contoh 10 Transaksi Terakhir:
 
     print(report)
 
-    # Simpan ke file teks laporan
-    report_file = "backtest_2month_report.txt"
+    report_file = os.path.join(os.path.dirname(__file__), "backtest_2month_report.txt")
     with open(report_file, "w", encoding="utf-8") as f:
         f.write(report)
         f.write("\n\nSemua Transaksi:\n")

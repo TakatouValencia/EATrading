@@ -313,20 +313,44 @@ class TradeManager:
 
                 atr = float(trade.get('atr', abs(entry - sl) / 1.5)) # fallback to inferred ATR
                 
-                # Auto Break-Even (BE) Trigger: Move SL to entry when in profit >= be_trigger_pips (or 50% of TP)
+                # Settings lookup
                 is_xau = "XAU" in symbol
                 pip_unit = 0.10 if is_xau else 0.0001
                 try:
                     import settings_manager
                     cfg_settings = settings_manager.load_settings()
-                    be_cfg_pips = float(cfg_settings.get("be_trigger_pips", 75.0))
+                    be_cfg_pips = float(cfg_settings.get("be_trigger_pips", 50.0))
+                    partial_enabled = bool(cfg_settings.get("partial_tp_enabled", True))
+                    partial_pips = float(cfg_settings.get("partial_tp_pips", 70.0))
+                    partial_ratio = float(cfg_settings.get("partial_tp_ratio", 0.5))
                 except Exception:
-                    be_cfg_pips = 75.0
-                be_trigger_dist = be_cfg_pips * pip_unit
+                    be_cfg_pips = 50.0
+                    partial_enabled = True
+                    partial_pips = 70.0
+                    partial_ratio = 0.5
+
                 favorable_move = (price - entry) if is_buy else (entry - price)
                 tp_dist = abs(tp - entry)
+                initial_sl = float(trade.get('initial_sl', sl))
+                risk_dist = abs(entry - initial_sl) if abs(entry - initial_sl) > 0 else 0.0001
+
+                # 1. Partial Take Profit (TP1) Trigger: Secure 50% lot at +70 pips ($7.00 Gold) & Move SL to BE
+                partial_dist = partial_pips * pip_unit
+                if partial_enabled and favorable_move >= partial_dist and not trade.get('partial_taken', False):
+                    trade['partial_taken'] = True
+                    locked_r = partial_ratio * (abs(price - entry) / risk_dist)
+                    trade['locked_pnl'] = locked_r
+                    
+                    new_sl = round(entry + (0.5 * pip_unit) if is_buy else entry - (0.5 * pip_unit), 2 if is_xau else 5)
+                    trade['sl_price'] = new_sl
+                    trade['sl'] = new_sl
+                    trade['is_be'] = True
+                    sl = new_sl
+                    print(f"[{symbol}] [PARTIAL TP1 SECURED (+{partial_pips:.1f} pips)] Closed {partial_ratio*100:.0f}% lot for {locked_r:+.2f}R! SL moved to BE ({new_sl})")
+
+                # 2. Standard Auto Break-Even (BE) Trigger (if not already moved by TP1): Move SL to entry at +50 pips
+                be_trigger_dist = be_cfg_pips * pip_unit
                 trigger_dist = min(be_trigger_dist, 0.5 * tp_dist)
-                
                 if favorable_move >= trigger_dist and not trade.get('is_be', False):
                     new_sl = round(entry + (0.5 * pip_unit) if is_buy else entry - (0.5 * pip_unit), 2 if is_xau else 5)
                     trade['sl_price'] = new_sl
@@ -335,7 +359,7 @@ class TradeManager:
                     sl = new_sl
                     print(f"[{symbol}] [AUTO BREAK-EVEN ACTIVATED] Gained {favorable_move/pip_unit:.1f} pips. SL moved to {new_sl}")
 
-                # Check for TP / SL
+                # 3. Check for TP / SL
                 won = False
                 lost = False
                 
@@ -351,13 +375,22 @@ class TradeManager:
                         won = True
                         
                 if won or lost:
-                    initial_sl = float(trade.get('initial_sl', sl))
-                    risk_dist = abs(entry - initial_sl) if abs(entry - initial_sl) > 0 else 0.0001
                     if won:
-                        new_status = 'WIN'
-                        pnl = abs(tp - entry) / risk_dist
-                    else:
-                        if trade.get('is_be', False):
+                        if trade.get('partial_taken', False):
+                            runner_r = (1.0 - partial_ratio) * (abs(tp - entry) / risk_dist)
+                            pnl = trade.get('locked_pnl', 0.0) + runner_r
+                            new_status = 'WIN'
+                            print(f"[{symbol}] [FULL TP2 HIT (+{tp_dist/pip_unit:.1f} pips)] Total Profit: {pnl:+.2f}R")
+                        else:
+                            new_status = 'WIN'
+                            pnl = abs(tp - entry) / risk_dist
+                    else: # lost (hit SL)
+                        if trade.get('partial_taken', False):
+                            new_status = 'WIN'
+                            pnl = trade.get('locked_pnl', 0.0)
+                            won = True # Mark as WIN because cash profit was secured!
+                            print(f"[{symbol}] [RUNNER CLOSED AT BE] Preserved TP1 profit: {pnl:+.2f}R (Counted as WIN).")
+                        elif trade.get('is_be', False):
                             new_status = 'BREAK_EVEN'
                             pnl = 0.0
                             print(f"[{symbol}] Trade closed at BREAK-EVEN (protected from loss).")

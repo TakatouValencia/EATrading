@@ -488,6 +488,9 @@ class SettingsModel(BaseModel):
     max_sl_pips: Optional[float] = 70.0
     min_sl_pips: Optional[float] = 25.0
     be_trigger_pips: Optional[float] = 50.0
+    partial_tp_enabled: Optional[bool] = True
+    partial_tp_pips: Optional[float] = 70.0
+    partial_tp_ratio: Optional[float] = 0.5
 
 @app.get("/api/settings")
 async def get_settings():
@@ -502,7 +505,10 @@ async def update_settings(settings: SettingsModel):
         "max_tp_pips": settings.max_tp_pips,
         "max_sl_pips": settings.max_sl_pips,
         "min_sl_pips": settings.min_sl_pips,
-        "be_trigger_pips": settings.be_trigger_pips
+        "be_trigger_pips": settings.be_trigger_pips,
+        "partial_tp_enabled": settings.partial_tp_enabled,
+        "partial_tp_pips": settings.partial_tp_pips,
+        "partial_tp_ratio": settings.partial_tp_ratio
     }
     settings_manager.save_settings(new_settings)
     return {"status": "success", "settings": new_settings}
