@@ -131,6 +131,8 @@ async def run_2month_backtest():
         obs_15m = e_15m.detect_order_blocks(ev_15m)
         fvgs_15m = e_15m.detect_fvg()
         breakers_15m = e_15m.detect_breaker_blocks(ev_15m)
+        qms_15m = e_15m.detect_quasimodo()
+        rbs_15m = e_15m.detect_rbs_sbr()
         pd_zones = e_15m.detect_premium_discount()
         trend_15m = "BULLISH" if ev_15m and "BULLISH" in ev_15m[-1]['type'] else "BEARISH"
 
@@ -140,6 +142,8 @@ async def run_2month_backtest():
         obs_5m = e_5m.detect_order_blocks(ev_5m)
         fvgs_5m = e_5m.detect_fvg()
         breakers_5m = e_5m.detect_breaker_blocks(ev_5m)
+        qms_5m = e_5m.detect_quasimodo()
+        rbs_5m = e_5m.detect_rbs_sbr()
         sweeps = e_5m.detect_liquidity_sweeps()
         atr = e_5m.calculate_atr(14)
         trend_5m = "BULLISH" if ev_5m and "BULLISH" in ev_5m[-1]['type'] else "BEARISH"
@@ -147,6 +151,8 @@ async def run_2month_backtest():
         combined_obs = obs_15m + obs_5m
         combined_fvgs = fvgs_15m + fvgs_5m
         combined_breakers = breakers_15m + breakers_5m
+        combined_qms = qms_15m + qms_5m
+        combined_rbs = rbs_15m + rbs_5m
 
         # Risk limits check
         tm.current_time_str = curr_time
@@ -170,7 +176,9 @@ async def run_2month_backtest():
                 atr=atr,
                 db=db,
                 engine_ltf=e_5m,
-                current_time_str=curr_time
+                current_time_str=curr_time,
+                qm_patterns=combined_qms,
+                rbs_sbr=combined_rbs
             )
             if sig and sig.get("status") not in ["SKIPPED", "REJECTED"]:
                 # Periksa duplikasi

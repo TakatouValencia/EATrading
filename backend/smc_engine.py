@@ -976,3 +976,96 @@ class SMCEngine:
         bottom_boundary = lowest + (range_size * edge_threshold_pct)
         
         return current_price >= top_boundary or current_price <= bottom_boundary
+
+    def detect_quasimodo(self) -> List[Dict]:
+        """
+        Detect Quasimodo (QM) Institutional Reversal / Continuation Patterns.
+        Bearish QM: High (H1) -> Low (L1) -> Higher High (HH, liquidity sweep) -> Lower Low (LL, break of structure).
+                    QML (Quasimodo Level) = Left Shoulder (H1).
+        Bullish QM: Low (L1) -> High (H1) -> Lower Low (LL, liquidity sweep) -> Higher High (HH, break of structure).
+                    QML (Quasimodo Level) = Left Shoulder (L1).
+        """
+        qm_patterns = []
+        swings = []
+        for i, row in enumerate(self.data):
+            if row.get('swing_high'):
+                swings.append({'type': 'HIGH', 'price': row['high'], 'index': i, 'timestamp': row['timestamp']})
+            if row.get('swing_low'):
+                swings.append({'type': 'LOW', 'price': row['low'], 'index': i, 'timestamp': row['timestamp']})
+                
+        if len(swings) < 4:
+            return []
+            
+        for i in range(3, len(swings)):
+            s0, s1, s2, s3 = swings[i-3], swings[i-2], swings[i-1], swings[i]
+            
+            # Bearish QM: H1 (s0) -> L1 (s1) -> HH (s2) -> LL (s3)
+            if s0['type'] == 'HIGH' and s1['type'] == 'LOW' and s2['type'] == 'HIGH' and s3['type'] == 'LOW':
+                if s2['price'] > s0['price'] and s3['price'] < s1['price']:
+                    qml_price = s0['price']
+                    mitigated = any(self.data[j]['high'] >= qml_price for j in range(s3['index'] + 1, len(self.data)))
+                    if not mitigated:
+                        qm_patterns.append({
+                            'type': 'QM_BEARISH',
+                            'qml': qml_price,
+                            'top': s2['price'],
+                            'bottom': qml_price,
+                            'timestamp': s3['timestamp'],
+                            'index': s3['index']
+                        })
+                        
+            # Bullish QM: L1 (s0) -> H1 (s1) -> LL (s2) -> HH (s3)
+            elif s0['type'] == 'LOW' and s1['type'] == 'HIGH' and s2['type'] == 'LOW' and s3['type'] == 'HIGH':
+                if s2['price'] < s0['price'] and s3['price'] > s1['price']:
+                    qml_price = s0['price']
+                    mitigated = any(self.data[j]['low'] <= qml_price for j in range(s3['index'] + 1, len(self.data)))
+                    if not mitigated:
+                        qm_patterns.append({
+                            'type': 'QM_BULLISH',
+                            'qml': qml_price,
+                            'top': qml_price,
+                            'bottom': s2['price'],
+                            'timestamp': s3['timestamp'],
+                            'index': s3['index']
+                        })
+                        
+        return qm_patterns
+
+    def detect_rbs_sbr(self) -> List[Dict]:
+        """
+        Detect RBS (Resistance Become Support) and SBR (Support Become Resistance).
+        """
+        rbs_sbr = []
+        for i, row in enumerate(self.data):
+            if row.get('swing_high'):
+                res_level = row['high']
+                for j in range(i + 1, len(self.data)):
+                    if self.data[j]['close'] > res_level:
+                        retested = any(self.data[k]['low'] <= res_level for k in range(j + 1, len(self.data)))
+                        if not retested:
+                            rbs_sbr.append({
+                                'type': 'RBS_BULLISH',
+                                'level': res_level,
+                                'top': res_level + 0.5,
+                                'bottom': res_level - 0.5,
+                                'timestamp': row['timestamp'],
+                                'index': i
+                            })
+                        break
+            if row.get('swing_low'):
+                sup_level = row['low']
+                for j in range(i + 1, len(self.data)):
+                    if self.data[j]['close'] < sup_level:
+                        retested = any(self.data[k]['high'] >= sup_level for k in range(j + 1, len(self.data)))
+                        if not retested:
+                            rbs_sbr.append({
+                                'type': 'SBR_BEARISH',
+                                'level': sup_level,
+                                'top': sup_level + 0.5,
+                                'bottom': sup_level - 0.5,
+                                'timestamp': row['timestamp'],
+                                'index': i
+                            })
+                        break
+        return rbs_sbr
+

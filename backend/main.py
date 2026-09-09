@@ -235,6 +235,8 @@ async def run_smc_analysis(tick: dict):
             combined_obs = m15_obs + m5_obs
             combined_fvgs = m15_fvgs + m5_fvgs
             combined_breakers = m15_breakers + m5_breakers
+            combined_qms = engine_m15.detect_quasimodo() + engine_m5.detect_quasimodo()
+            combined_rbs = engine_m15.detect_rbs_sbr() + engine_m5.detect_rbs_sbr()
 
             # DXY Trend for Intermarket Correlation (using cached/async data)
             dxy_trend = None
@@ -298,7 +300,9 @@ async def run_smc_analysis(tick: dict):
                         atr=atr,
                         reversal_patterns=reversal_patterns,
                         db=db,
-                        engine_ltf=engine_m1
+                        engine_ltf=engine_m1,
+                        qm_patterns=combined_qms,
+                        rbs_sbr=combined_rbs
                     )
                     # Process and register new signal atomically
                     if signal and signal.get("status") not in ["SKIPPED", "REJECTED"]:

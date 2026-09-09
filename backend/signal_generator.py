@@ -52,7 +52,9 @@ class SignalGenerator:
                                   amd_setups: List[Dict] = None, atr: float = 1.0, reversal_patterns: List[str] = None,
                                   db = None, adx_m15: float = 25.0, adx_m5: float = 25.0,
                                   adx_h1: float = 25.0, adx_h4: float = 25.0,
-                                  current_time_str: str = None) -> Optional[Dict]:
+                                  current_time_str: str = None,
+                                  qm_patterns: List[Dict] = None,
+                                  rbs_sbr: List[Dict] = None) -> Optional[Dict]:
         """
         Evaluate if a new signal should be generated based on institutional SMC confluence.
         Uses Low Timeframes: M15 (HTF/Macro Intraday), M5 (MTF Intermediate), M1 (LTF Execution).
@@ -116,8 +118,10 @@ class SignalGenerator:
         valid_obs = [ob for ob in (obs or []) if not is_banned(f"{symbol}_{ob['type']}_{ob['bottom']}_{ob['top']}")]
         valid_fvgs = [fvg for fvg in (fvgs or []) if not is_banned(f"{symbol}_{fvg['type']}_{fvg['bottom']}_{fvg['top']}")]
         valid_breakers = [b for b in (breakers or []) if not is_banned(f"{symbol}_{b['type']}_{b['bottom']}_{b['top']}")]
+        valid_qms = [q for q in (qm_patterns or []) if not is_banned(f"{symbol}_{q['type']}_{q['bottom']}_{q['top']}")]
+        valid_rbs = [r for r in (rbs_sbr or []) if not is_banned(f"{symbol}_{r['type']}_{r['bottom']}_{r['top']}")]
 
-        # Killzone Check (London 07:00-10:00 UTC, NY 12:00-16:00 UTC)
+        # Killzone Check (London 07:00-11:00 UTC, NY 12:00-17:00 UTC)
         if current_time_str:
             try:
                 ts = current_time_str.replace("Z", "+00:00")
@@ -128,7 +132,11 @@ class SignalGenerator:
         else:
             utc_now = datetime.utcnow()
             utc_hour = utc_now.hour
-        is_killzone = (7 <= utc_hour < 10) or (12 <= utc_hour < 16)
+        is_killzone = (7 <= utc_hour < 11) or (12 <= utc_hour < 17)
+
+        # Strict Session Filter: Only trade during high-liquidity London & NY killzones
+        if not is_killzone:
+            return None
 
         # 4. Helper to evaluate setup for a specific direction
         def _evaluate_setup_candidate(is_bullish: bool) -> Optional[Dict]:
@@ -160,15 +168,15 @@ class SignalGenerator:
             has_idm = False
             if sweeps:
                 sweep_target = "SWEEP_BULLISH" if is_bullish else "SWEEP_BEARISH"
-                for sw in reversed(sweeps[-10:]):
+                for sw in reversed(sweeps[-15:]):
                     if sw.get('type') == sweep_target:
                         has_sweep = True
-                        confluence_score += 2
-                        reasons.append(f"{'Bullish' if is_bullish else 'Bearish'} Liquidity Sweep")
+                        confluence_score += 3
+                        reasons.append(f"{'Bullish' if is_bullish else 'Bearish'} Liquidity Sweep (+3)")
                         if sw.get('is_idm'):
                             has_idm = True
                             confluence_score += 1
-                            reasons.append("Inducement (IDM) Taken")
+                            reasons.append("Inducement (IDM) Taken (+1)")
                         break
 
             # C. Premium & Discount Alignment
@@ -219,6 +227,14 @@ class SignalGenerator:
             if is_bullish:
                 # Bullish setups: Entry POI must be below current price (for LIMIT) or current price inside POI
                 candidate_pois = []
+                for qm in valid_qms:
+                    if qm['type'] == "QM_BULLISH":
+                        if qm['top'] <= current_price + 0.3 * atr and qm['bottom'] <= current_price:
+                            candidate_pois.append(("QM", qm, qm['top'], qm['bottom']))
+                for rbs in valid_rbs:
+                    if rbs['type'] == "RBS_BULLISH":
+                        if rbs['top'] <= current_price + 0.3 * atr and rbs['bottom'] <= current_price:
+                            candidate_pois.append(("RBS", rbs, rbs['top'], rbs['bottom']))
                 for ob in valid_obs:
                     if ob['type'] == "OB_BULLISH" and not ob.get('mitigated', False):
                         if ob['top'] <= current_price + 0.3 * atr and ob['bottom'] <= current_price:
@@ -274,6 +290,14 @@ class SignalGenerator:
             else:
                 # Bearish setups: Entry POI must be above current price (for LIMIT) or current price inside POI
                 candidate_pois = []
+                for qm in valid_qms:
+                    if qm['type'] == "QM_BEARISH":
+                        if qm['bottom'] >= current_price - 0.3 * atr and qm['top'] >= current_price:
+                            candidate_pois.append(("QM", qm, qm['bottom'], qm['top']))
+                for sbr in valid_rbs:
+                    if sbr['type'] == "SBR_BEARISH":
+                        if sbr['bottom'] >= current_price - 0.3 * atr and sbr['top'] >= current_price:
+                            candidate_pois.append(("SBR", sbr, sbr['bottom'], sbr['top']))
                 for ob in valid_obs:
                     if ob['type'] == "OB_BEARISH" and not ob.get('mitigated', False):
                         if ob['bottom'] >= current_price - 0.3 * atr and ob['top'] >= current_price:
@@ -327,9 +351,17 @@ class SignalGenerator:
                     reasons.append(f"Setup: Bearish {poi_type} Supply Zone ({poi_bottom:.2f} - {poi_top:.2f})")
 
             # Point bonus for POI
-            confluence_score += 2
-            if poi_type in ["OB", "BREAKER"]:
-                confluence_score += 1  # High institutional volume footprint
+            if poi_type == "QM":
+                confluence_score += 3
+                reasons.append("Institutional Quasimodo (QM) Key Level (+3)")
+            elif poi_type in ["RBS", "SBR"]:
+                confluence_score += 2
+                reasons.append(f"Institutional Role Reversal ({poi_type}) Retest (+2)")
+            elif poi_type in ["OB", "BREAKER"]:
+                confluence_score += 2
+                reasons.append(f"Institutional {poi_type} Footprint (+2)")
+            else:
+                confluence_score += 1
 
             # H. Candlestick Reversal Confirmation
             if reversal_patterns:
@@ -368,18 +400,15 @@ class SignalGenerator:
             if rr_ratio < 1.4:
                 return None  # Enforce minimum 1:1.4 R:R for mathematical edge
 
-            # K. Grading Scale
-            if confluence_score >= 8:
+            # K. Grading Scale - STRICTLY GRADE A and A+ ONLY
+            if confluence_score >= 9:
                 setup_grade = "A+"
                 risk_multiplier = 1.0
-            elif confluence_score >= 6:
+            elif confluence_score >= 7:
                 setup_grade = "A"
-                risk_multiplier = 0.75
-            elif confluence_score >= 5:
-                setup_grade = "B"
-                risk_multiplier = 0.5
+                risk_multiplier = 0.8
             else:
-                # Reject setups with confluence score < 5 to maintain high Win Rate
+                # Strict Rule: Only Grade A and A+ allowed
                 return None
 
             return {
