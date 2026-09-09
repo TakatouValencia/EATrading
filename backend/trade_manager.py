@@ -71,12 +71,14 @@ class TradeManager:
         if won:
             self.consecutive_losses = 0
             print(f"[RISK] Trade Won! Consecutive losses reset to 0. Daily PnL: {self.daily_pnl:.2f}R")
+        elif pnl == 0.0:
+            print(f"[RISK] Trade closed at Break-Even (0 PnL). Consecutive losses remain {self.consecutive_losses}/3. Daily PnL: {self.daily_pnl:.2f}R")
         else:
             if pnl < 0:
                 self.consecutive_losses += 1
                 print(f"[RISK] Trade Lost (SL). Consecutive losses: {self.consecutive_losses}/3. Daily PnL: {self.daily_pnl:.2f}R")
                 if self.consecutive_losses >= 3:
-                    print(f"🚨 [CIRCUIT BREAKER TRIGGERED] 3 Consecutive Stop Losses hit today! Trading is PAUSED until tomorrow.")
+                    print(f"[CIRCUIT BREAKER TRIGGERED] 3 Consecutive Stop Losses hit today! Trading is PAUSED until tomorrow.")
 
     def check_trading_allowed(self) -> tuple[bool, str]:
         """Check if trading is allowed based on psychological risk limits."""
@@ -99,8 +101,12 @@ class TradeManager:
             from datetime import datetime
             signal['entry_timestamp'] = datetime.now().isoformat()
             signal['partial_taken'] = False
+            signal['is_be'] = False
+            signal['initial_sl'] = signal.get('sl')
             
         if signal not in self.tracked_trades:
+            signal['is_be'] = False
+            signal['initial_sl'] = signal.get('sl')
             self.tracked_trades.append(signal)
 
     def has_active_trade(self, symbol: str) -> bool:
@@ -159,8 +165,14 @@ class TradeManager:
                     if ts:
                         # Handle ISO formats
                         ts_obj = datetime.fromisoformat(ts.replace('Z', '+00:00'))
-                        # Use naive datetime for comparison if ts_obj is naive, else aware
-                        now = datetime.now(ts_obj.tzinfo)
+                        if self.current_time_str:
+                            now = datetime.fromisoformat(str(self.current_time_str).replace('Z', '+00:00'))
+                        else:
+                            now = datetime.now(ts_obj.tzinfo)
+                        if now.tzinfo is not None and ts_obj.tzinfo is None:
+                            now = now.replace(tzinfo=None)
+                        elif now.tzinfo is None and ts_obj.tzinfo is not None:
+                            ts_obj = ts_obj.replace(tzinfo=None)
                         if now - ts_obj > timedelta(minutes=30):
                             print(f"[{symbol}] PENDING trade expired (> 30 mins). Cancelling.")
                             trade['status'] = 'CANCELLED'
@@ -233,7 +245,7 @@ class TradeManager:
                 if triggered:
                     trade['status'] = 'ACTIVE'
                     from datetime import datetime
-                    trade['entry_timestamp'] = datetime.now().isoformat()
+                    trade['entry_timestamp'] = str(self.current_time_str) if self.current_time_str else datetime.now().isoformat()
                     trade['partial_taken'] = False
                     trade['mfe_price'] = price
                     if trade_id:
@@ -253,7 +265,14 @@ class TradeManager:
                     entry_ts = trade.get('entry_timestamp')
                     if entry_ts:
                         entry_ts_obj = datetime.fromisoformat(entry_ts.replace('Z', '+00:00'))
-                        now = datetime.now(entry_ts_obj.tzinfo)
+                        if self.current_time_str:
+                            now = datetime.fromisoformat(str(self.current_time_str).replace('Z', '+00:00'))
+                        else:
+                            now = datetime.now(entry_ts_obj.tzinfo)
+                        if now.tzinfo is not None and entry_ts_obj.tzinfo is None:
+                            now = now.replace(tzinfo=None)
+                        elif now.tzinfo is None and entry_ts_obj.tzinfo is not None:
+                            entry_ts_obj = entry_ts_obj.replace(tzinfo=None)
                         if now - entry_ts_obj > timedelta(hours=48):
                             print(f"[{symbol}] Time-based exit for trade. Closing at market.")
                             won = (is_buy and price > entry) or (not is_buy and price < entry)
@@ -294,6 +313,22 @@ class TradeManager:
 
                 atr = float(trade.get('atr', abs(entry - sl) / 1.5)) # fallback to inferred ATR
                 
+                # Auto Break-Even (BE) Trigger: Move SL to entry when in profit >= 50 pips (or 40% of TP)
+                is_xau = "XAU" in symbol
+                pip_unit = 0.10 if is_xau else 0.0001
+                be_trigger_dist = 50.0 * pip_unit
+                favorable_move = (price - entry) if is_buy else (entry - price)
+                tp_dist = abs(tp - entry)
+                trigger_dist = min(be_trigger_dist, 0.4 * tp_dist)
+                
+                if favorable_move >= trigger_dist and not trade.get('is_be', False):
+                    new_sl = round(entry + (0.2 * pip_unit) if is_buy else entry - (0.2 * pip_unit), 2 if is_xau else 5)
+                    trade['sl_price'] = new_sl
+                    trade['sl'] = new_sl
+                    trade['is_be'] = True
+                    sl = new_sl
+                    print(f"[{symbol}] [AUTO BREAK-EVEN ACTIVATED] Gained {favorable_move/pip_unit:.1f} pips. SL moved to {new_sl}")
+
                 # Check for TP / SL
                 won = False
                 lost = False
@@ -310,13 +345,19 @@ class TradeManager:
                         won = True
                         
                 if won or lost:
-                    risk_dist = abs(entry - sl) if abs(entry - sl) > 0 else 0.0001
+                    initial_sl = float(trade.get('initial_sl', sl))
+                    risk_dist = abs(entry - initial_sl) if abs(entry - initial_sl) > 0 else 0.0001
                     if won:
                         new_status = 'WIN'
                         pnl = abs(tp - entry) / risk_dist
                     else:
-                        new_status = 'LOSS'
-                        pnl = -1.0
+                        if trade.get('is_be', False):
+                            new_status = 'BREAK_EVEN'
+                            pnl = 0.0
+                            print(f"[{symbol}] Trade closed at BREAK-EVEN (protected from loss).")
+                        else:
+                            new_status = 'LOSS'
+                            pnl = -1.0
                         
                     mfe_dist = abs(trade['mfe_price'] - entry)
                     if (is_buy and trade['mfe_price'] > entry) or (not is_buy and trade['mfe_price'] < entry):

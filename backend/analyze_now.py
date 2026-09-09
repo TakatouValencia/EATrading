@@ -13,53 +13,56 @@ async def main():
     sg = SignalGenerator(cooldown_minutes=0)
     symbol = "XAU/USD"
     print(f"Fetching data for {symbol}...")
-    df_h4 = dp.get_historical_data(symbol, interval="4h")
-    df_h1 = dp.get_historical_data(symbol, interval="1h")
-    df_htf = dp.get_historical_data(symbol, interval="15min")
-    df_ltf = dp.get_historical_data(symbol, interval="1min")
+    df_m15 = dp.get_historical_data(symbol, interval="15min")
+    df_m5 = dp.get_historical_data(symbol, interval="5min")
+    df_m1 = dp.get_historical_data(symbol, interval="1min")
     
-    if not df_htf or not df_ltf or not df_h1 or not df_h4:
+    if not df_m15 or not df_m5 or not df_m1:
         print("Failed to fetch data.")
         return
         
-    print(f"Got {len(df_h4)} H4, {len(df_h1)} H1, {len(df_htf)} M15 and {len(df_ltf)} M1 candles.")
+    print(f"Got {len(df_m15)} M15, {len(df_m5)} M5, and {len(df_m1)} M1 candles.")
     
-    # Run SMC Engine on H4
-    h4_trend = None
-    if df_h4:
-        h4_events = SMCEngine(df_h4).detect_bos_choch()
-        if h4_events:
-            h4_trend = "BULLISH" if "BULLISH" in h4_events[-1]['type'] else "BEARISH"
-            
-    # Run SMC Engine on H1
-    h1_trend = None
-    if df_h1:
-        h1_events = SMCEngine(df_h1).detect_bos_choch()
-        if h1_events:
-            h1_trend = "BULLISH" if "BULLISH" in h1_events[-1]['type'] else "BEARISH"
-            
     # Run SMC Engine on M15 (HTF)
-    engine_htf = SMCEngine(df_htf)
-    htf_events = engine_htf.detect_bos_choch()
-    htf_trend = None
-    if htf_events:
-        last_htf_event = htf_events[-1]
-        if "BULLISH" in last_htf_event['type']:
-            htf_trend = "BULLISH"
-        elif "BEARISH" in last_htf_event['type']:
-            htf_trend = "BEARISH"
-    print(f"M15 (HTF) Trend: {htf_trend}")
+    engine_m15 = SMCEngine(df_m15)
+    m15_events = engine_m15.detect_bos_choch()
+    m15_obs = engine_m15.detect_order_blocks(m15_events)
+    m15_fvgs = engine_m15.detect_fvg()
+    m15_breakers = engine_m15.detect_breaker_blocks(m15_events)
+    pd_zones = engine_m15.detect_premium_discount()
+    m15_trend = None
+    if m15_events:
+        last_m15_event = m15_events[-1]
+        m15_trend = "BULLISH" if "BULLISH" in last_m15_event['type'] else "BEARISH"
+    print(f"M15 (HTF) Trend: {m15_trend}")
     
+    # Run SMC Engine on M5 (MTF)
+    engine_m5 = SMCEngine(df_m5)
+    m5_events = engine_m5.detect_bos_choch()
+    m5_obs = engine_m5.detect_order_blocks(m5_events)
+    m5_fvgs = engine_m5.detect_fvg()
+    m5_breakers = engine_m5.detect_breaker_blocks(m5_events)
+    m5_trend = None
+    if m5_events:
+        last_m5_event = m5_events[-1]
+        m5_trend = "BULLISH" if "BULLISH" in last_m5_event['type'] else "BEARISH"
+    print(f"M5 (MTF) Trend: {m5_trend}")
+    
+    # Combine M15 and M5 POIs
+    combined_obs = m15_obs + m5_obs
+    combined_fvgs = m15_fvgs + m5_fvgs
+    combined_breakers = m15_breakers + m5_breakers
+
     # Run SMC Engine on M1 (LTF)
-    engine_ltf = SMCEngine(df_ltf)
-    events = engine_ltf.detect_bos_choch()
-    fvgs = engine_ltf.detect_fvg()
-    obs = engine_ltf.detect_order_blocks(events)
-    sweeps = engine_ltf.detect_liquidity_sweeps()
-    snr_zones = engine_ltf.detect_support_resistance()
-    snd_zones = engine_ltf.detect_supply_demand()
+    engine_m1 = SMCEngine(df_m1)
+    events = engine_m1.detect_bos_choch()
+    sweeps = engine_m1.detect_liquidity_sweeps()
+    snr_zones = engine_m1.detect_support_resistance()
+    snd_zones = engine_m1.detect_supply_demand()
+    fibo_ote = engine_m1.detect_fibo_ote()
+    poc_price = engine_m1.calculate_volume_profile(lookback=100)
     
-    current_price = df_ltf[-1]['close']
+    current_price = df_m1[-1]['close']
     print(f"Current M1 Price: {current_price}")
     
     # Evaluate confluence
@@ -74,25 +77,29 @@ async def main():
                 dxy_trend = "BULLISH" if "BULLISH" in dxy_events[-1]['type'] else "BEARISH"
                 print(f"DXY HTF Trend: {dxy_trend}")
                 
-    atr = engine_ltf.calculate_atr(period=14)
-    reversal_patterns = engine_ltf.detect_reversal_patterns()
+    atr = engine_m1.calculate_atr(period=14)
+    reversal_patterns = engine_m1.detect_reversal_patterns()
     
     signal = await sg.evaluate_confluence(
         symbol=symbol,
         current_price=current_price,
         events=events,
-        obs=obs,
-        fvgs=fvgs,
+        obs=combined_obs,
+        fvgs=combined_fvgs,
         sweeps=sweeps,
-        htf_trend=htf_trend,
-        h1_trend=h1_trend,
-        h4_trend=h4_trend,
+        m15_trend=m15_trend,
+        m5_trend=m5_trend,
+        htf_trend=m15_trend,
         snr_zones=snr_zones,
         snd_zones=snd_zones,
+        pd_zones=pd_zones,
+        breakers=combined_breakers,
         dxy_trend=dxy_trend,
+        fibo_ote=fibo_ote,
+        poc_price=poc_price,
         atr=atr,
         reversal_patterns=reversal_patterns,
-        engine_ltf=engine_ltf
+        engine_ltf=engine_m1
     )
     
     if signal:

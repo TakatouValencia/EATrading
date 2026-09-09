@@ -44,15 +44,19 @@ class SignalGenerator:
 
     async def evaluate_confluence(self, symbol: str, current_price: float, 
                                   events: List[Dict], obs: List[Dict], fvgs: List[Dict], sweeps: List[Dict] = None, 
+                                  m15_trend: str = None, m5_trend: str = None,
                                   htf_trend: str = None, h1_trend: str = None, h4_trend: str = None, 
                                   engine_ltf = None, snr_zones: List[Dict] = None, snd_zones: List[Dict] = None, 
                                   pd_zones: Dict = None, breakers: List[Dict] = None, dxy_trend: str = None, 
                                   fibo_ote: Dict = None, poc_price: float = None, trade_manager = None,
                                   amd_setups: List[Dict] = None, atr: float = 1.0, reversal_patterns: List[str] = None,
-                                  db = None, adx_h1: float = 25.0, adx_h4: float = 25.0) -> Optional[Dict]:
+                                  db = None, adx_m15: float = 25.0, adx_m5: float = 25.0,
+                                  adx_h1: float = 25.0, adx_h4: float = 25.0,
+                                  current_time_str: str = None) -> Optional[Dict]:
         """
         Evaluate if a new signal should be generated based on institutional SMC confluence.
-        Guarantees high Win Rate and strict risk protection (consecutive losses <= 3 per day).
+        Uses Low Timeframes: M15 (HTF/Macro Intraday), M5 (MTF Intermediate), M1 (LTF Execution).
+        Strict Risk: Max 70 pips SL, Target 150 - 200 pips TP.
         """
         # 1. Check Trading Allowed (Psychology & Circuit Breaker Limits)
         if trade_manager:
@@ -62,23 +66,47 @@ class SignalGenerator:
                 return None
                 
         # 2. Check Cooldown
-        now_time = datetime.now()
+        if current_time_str:
+            try:
+                ts = current_time_str.replace("Z", "+00:00")
+                if "+" in ts or (len(ts) > 10 and "-" in ts[10:]):
+                    now_time = datetime.fromisoformat(ts).replace(tzinfo=None)
+                else:
+                    now_time = datetime.fromisoformat(ts)
+            except Exception:
+                now_time = datetime.now()
+        else:
+            now_time = datetime.now()
+
         if symbol in self.cooldowns:
             if now_time < self.cooldowns[symbol]:
                 return None
             else:
                 del self.cooldowns[symbol]
 
-        # 3. Dynamic ATR Floors and Buffer
+        # 3. Dynamic ATR Floors, Buffer, and Configured SL / TP Limits
         is_xau = "XAU" in symbol
+        pip_unit = 0.10 if is_xau else 0.0001
+        
+        settings = settings_manager.load_settings()
+        req_max_sl_pips = float(settings.get("max_sl_pips", 70.0))
+        req_min_sl_pips = float(settings.get("min_sl_pips", 25.0))
+        req_min_tp_pips = float(settings.get("min_tp_pips", 150.0))
+        req_max_tp_pips = float(settings.get("max_tp_pips", 200.0))
+
         if atr is None or atr <= 0:
-            atr = 2.0 if is_xau else 0.0015
+            atr = 1.5 if is_xau else 0.0010
             
         buffer_dist = 0.5 if is_xau else 0.0005
-        min_sl_floor = 4.0 if is_xau else 0.0040
-        max_sl_cap = 12.0 if is_xau else 0.0120
-        min_tp_dist = 8.0 if is_xau else 0.0080
-        max_limit_distance = 45.0 if is_xau else 0.0400
+        min_sl_floor = max(req_min_sl_pips * pip_unit, 2.5 if is_xau else 0.0020)
+        max_sl_cap = req_max_sl_pips * pip_unit    # Strictly 70 pips (7.0 for Gold)
+        min_tp_dist = req_min_tp_pips * pip_unit   # 150 pips (15.0 for Gold)
+        max_tp_dist = req_max_tp_pips * pip_unit   # 200 pips (20.0 for Gold)
+        max_limit_distance = 15.0 if is_xau else 0.0150 # Tight limit placement for low TF
+
+        # Resolve Low Timeframe trends (M15 Macro, M5 Intermediate)
+        macro_trend = m15_trend or htf_trend or h4_trend
+        inter_trend = m5_trend or h1_trend
 
         # Filter out blacklisted and rejected zones from incoming POIs
         blacklisted = db.get_blacklisted_zones(symbol) if db else set()
@@ -90,8 +118,16 @@ class SignalGenerator:
         valid_breakers = [b for b in (breakers or []) if not is_banned(f"{symbol}_{b['type']}_{b['bottom']}_{b['top']}")]
 
         # Killzone Check (London 07:00-10:00 UTC, NY 12:00-16:00 UTC)
-        utc_now = datetime.utcnow()
-        utc_hour = utc_now.hour
+        if current_time_str:
+            try:
+                ts = current_time_str.replace("Z", "+00:00")
+                utc_dt = datetime.fromisoformat(ts)
+                utc_hour = utc_dt.hour
+            except Exception:
+                utc_hour = datetime.utcnow().hour
+        else:
+            utc_now = datetime.utcnow()
+            utc_hour = utc_now.hour
         is_killzone = (7 <= utc_hour < 10) or (12 <= utc_hour < 16)
 
         # 4. Helper to evaluate setup for a specific direction
@@ -99,25 +135,25 @@ class SignalGenerator:
             confluence_score = 0
             reasons = []
 
-            # A. Macro Trend Alignment (H4 & H1)
-            # SMC Hierarchy: H4 is Macro Trend, H1 is Intermediate Trend
+            # A. Macro Trend Alignment (M15 & M5)
+            # SMC Hierarchy: M15 is Macro Intraday Trend, M5 is Intermediate Trend
             trend_tag = "BULLISH" if is_bullish else "BEARISH"
             opposing_tag = "BEARISH" if is_bullish else "BULLISH"
 
-            if h4_trend == trend_tag and h1_trend == trend_tag:
+            if macro_trend == trend_tag and inter_trend == trend_tag:
                 confluence_score += 3
-                reasons.append(f"Full MTF Alignment (H4 & H1 {trend_tag})")
-            elif h4_trend == trend_tag and h1_trend == opposing_tag:
+                reasons.append(f"Full Low-TF Alignment (M15 & M5 {trend_tag})")
+            elif macro_trend == trend_tag and inter_trend == opposing_tag:
                 # Institutional Retrace to Wholesale POI: Buying discount in uptrend / Selling premium in downtrend
                 confluence_score += 2
-                reasons.append(f"H4 {trend_tag} Macro with H1 Pullback into POI")
-            elif h4_trend == opposing_tag and h1_trend == opposing_tag:
+                reasons.append(f"M15 {trend_tag} Macro with M5 Pullback into POI")
+            elif macro_trend == opposing_tag and inter_trend == opposing_tag:
                 # Strong counter-trend: heavily penalize
                 confluence_score -= 3
-                reasons.append(f"Counter-Trend Warning (H4 & H1 {opposing_tag})")
-            elif h1_trend == trend_tag:
+                reasons.append(f"Counter-Trend Warning (M15 & M5 {opposing_tag})")
+            elif inter_trend == trend_tag or macro_trend == trend_tag:
                 confluence_score += 1
-                reasons.append(f"H1 {trend_tag} Trend Alignment")
+                reasons.append(f"{'M5' if inter_trend == trend_tag else 'M15'} {trend_tag} Trend Alignment")
 
             # B. Liquidity Sweep & Inducement (Crucial for high WR)
             has_sweep = False
@@ -213,19 +249,26 @@ class SignalGenerator:
                     # Inside or at the edge of POI -> Confirmed Market Order
                     exec_type = "CONFIRMED"
                     entry_target = current_price
-                    sl_dist = max(min_sl_floor, min(max_sl_cap, (entry_target - poi_bottom) + buffer_dist))
+                    raw_sl_dist = (entry_target - poi_bottom) + buffer_dist
+                    sl_dist = max(min_sl_floor, min(max_sl_cap, raw_sl_dist))
                     sl_target = entry_target - sl_dist
-                    effective_tp = max(1.5 * sl_dist, min_tp_dist)
+                    effective_tp = max(min_tp_dist, min(max_tp_dist, max(2.5 * sl_dist, min_tp_dist)))
                     tp_target = entry_target + effective_tp
-                    reasons.append(f"Entry: Inside HTF Bullish {poi_type} ({poi_bottom:.2f} - {poi_top:.2f})")
+                    reasons.append(f"Entry: Inside Bullish {poi_type} ({poi_bottom:.2f} - {poi_top:.2f})")
                 else:
                     # Approaching POI -> Pending Limit Order
                     exec_type = "LIMIT"
-                    entry_target = poi_top
-                    sl_dist = max(min_sl_floor, min(max_sl_cap, (entry_target - poi_bottom) + buffer_dist))
+                    # If POI is too wide (> max_sl_cap), refine entry deeper inside the POI to guarantee safe SL <= 70 pips
+                    poi_height = poi_top - poi_bottom
+                    if poi_height + buffer_dist > max_sl_cap:
+                        entry_target = poi_bottom + (max_sl_cap - buffer_dist)
+                    else:
+                        entry_target = poi_top
+                    raw_sl_dist = (entry_target - poi_bottom) + buffer_dist
+                    sl_dist = max(min_sl_floor, min(max_sl_cap, raw_sl_dist))
                     sl_target = entry_target - sl_dist
-                    effective_tp = max(1.5 * sl_dist, min_tp_dist)
-                    tp_target = max(entry_target + effective_tp, current_price + 1.0 * atr)
+                    effective_tp = max(min_tp_dist, min(max_tp_dist, max(2.5 * sl_dist, min_tp_dist)))
+                    tp_target = entry_target + effective_tp
                     reasons.append(f"Setup: Bullish {poi_type} Demand Zone ({poi_bottom:.2f} - {poi_top:.2f})")
 
             else:
@@ -261,19 +304,26 @@ class SignalGenerator:
                     # Inside or at the edge of POI -> Confirmed Market Order
                     exec_type = "CONFIRMED"
                     entry_target = current_price
-                    sl_dist = max(min_sl_floor, min(max_sl_cap, (poi_top - entry_target) + buffer_dist))
+                    raw_sl_dist = (poi_top - entry_target) + buffer_dist
+                    sl_dist = max(min_sl_floor, min(max_sl_cap, raw_sl_dist))
                     sl_target = entry_target + sl_dist
-                    effective_tp = max(1.5 * sl_dist, min_tp_dist)
+                    effective_tp = max(min_tp_dist, min(max_tp_dist, max(2.5 * sl_dist, min_tp_dist)))
                     tp_target = entry_target - effective_tp
-                    reasons.append(f"Entry: Inside HTF Bearish {poi_type} ({poi_bottom:.2f} - {poi_top:.2f})")
+                    reasons.append(f"Entry: Inside Bearish {poi_type} ({poi_bottom:.2f} - {poi_top:.2f})")
                 else:
                     # Approaching POI -> Pending Limit Order
                     exec_type = "LIMIT"
-                    entry_target = poi_bottom
-                    sl_dist = max(min_sl_floor, min(max_sl_cap, (poi_top - entry_target) + buffer_dist))
+                    # If POI is too wide (> max_sl_cap), refine entry deeper inside the POI to guarantee safe SL <= 70 pips
+                    poi_height = poi_top - poi_bottom
+                    if poi_height + buffer_dist > max_sl_cap:
+                        entry_target = poi_top - (max_sl_cap - buffer_dist)
+                    else:
+                        entry_target = poi_bottom
+                    raw_sl_dist = (poi_top - entry_target) + buffer_dist
+                    sl_dist = max(min_sl_floor, min(max_sl_cap, raw_sl_dist))
                     sl_target = entry_target + sl_dist
-                    effective_tp = max(1.5 * sl_dist, min_tp_dist)
-                    tp_target = min(entry_target - effective_tp, current_price - 1.0 * atr)
+                    effective_tp = max(min_tp_dist, min(max_tp_dist, max(2.5 * sl_dist, min_tp_dist)))
+                    tp_target = entry_target - effective_tp
                     reasons.append(f"Setup: Bearish {poi_type} Supply Zone ({poi_bottom:.2f} - {poi_top:.2f})")
 
             # Point bonus for POI
@@ -387,7 +437,7 @@ class SignalGenerator:
             "symbol": symbol,
             "type": best['type'],
             "signal_type": best['signal_type'],
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": now_time.isoformat() if current_time_str else datetime.now().isoformat(),
             "entry": entry_val,
             "sl": sl_val,
             "tp": tp_val,
@@ -396,11 +446,12 @@ class SignalGenerator:
             "status": "PENDING",
             "grade": best['grade'],
             "atr": round(atr, 2),
-            "poi_signature": best['poi_signature']
+            "poi_signature": best['poi_signature'],
+            "rr_ratio": best['rr_ratio']
         }
 
         print(f"\n{'='*55}\n[SMC ENGINE] Valid Setup Found for {symbol}!\nType: {signal['type']} ({signal['signal_type']}) | Grade: {signal['grade']} (Score: {best['score']})\nEntry: {signal['entry']} | SL: {signal['sl']} | TP: {signal['tp']} (R:R 1:{best['rr_ratio']})\n{'='*55}\n")
 
         self.active_signals[symbol] = signal
-        self.cooldowns[symbol] = datetime.now() + timedelta(minutes=self.cooldown_minutes)
+        self.cooldowns[symbol] = now_time + timedelta(minutes=self.cooldown_minutes)
         return signal

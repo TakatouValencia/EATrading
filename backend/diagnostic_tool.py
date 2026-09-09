@@ -71,44 +71,39 @@ async def run_diagnostics():
         dp = DataProvider()
         
         m1 = await asyncio.to_thread(dp.get_historical_data, "XAU/USD", "1min", use_csv=False)
+        m5 = await asyncio.to_thread(dp.get_historical_data, "XAU/USD", "5min", use_csv=False)
         m15 = await asyncio.to_thread(dp.get_historical_data, "XAU/USD", "15min", use_csv=False)
-        h1 = await asyncio.to_thread(dp.get_historical_data, "XAU/USD", "1h", use_csv=False)
-        h4 = await asyncio.to_thread(dp.get_historical_data, "XAU/USD", "4h", use_csv=False)
         
         current_price = m1[-1]['close'] if m1 else 0
         print(f"  * Live XAU/USD Price: ${current_price:.2f}")
-        print(f"  * Candles Loaded: H4={len(h4)}, H1={len(h1)}, M15={len(m15)}, M1={len(m1)}")
+        print(f"  * Candles Loaded: M15={len(m15 or [])}, M5={len(m5 or [])}, M1={len(m1 or [])}")
         
         # 5. Multi-Timeframe Structure & SMC Analysis
-        print("\n[5/6] Multi-Timeframe SMC Structure Analysis...")
-        e_h4 = SMCEngine(h4)
-        e_h1 = SMCEngine(h1)
+        print("\n[5/6] Multi-Timeframe SMC Structure Analysis (M15, M5, M1)...")
         e_m15 = SMCEngine(m15)
+        e_m5 = SMCEngine(m5)
         e_m1 = SMCEngine(m1)
         
-        h4_ev = e_h4.detect_bos_choch()
-        h1_ev = e_h1.detect_bos_choch()
         m15_ev = e_m15.detect_bos_choch()
+        m5_ev = e_m5.detect_bos_choch()
         m1_ev = e_m1.detect_bos_choch()
         
-        h4_trend = "BULLISH" if h4_ev and "BULLISH" in h4_ev[-1]['type'] else "BEARISH"
-        h1_trend = "BULLISH" if h1_ev and "BULLISH" in h1_ev[-1]['type'] else "BEARISH"
         m15_trend = "BULLISH" if m15_ev and "BULLISH" in m15_ev[-1]['type'] else "BEARISH"
+        m5_trend = "BULLISH" if m5_ev and "BULLISH" in m5_ev[-1]['type'] else "BEARISH"
         
-        h1_obs = e_h1.detect_order_blocks(h1_ev)
-        h1_fvgs = e_h1.detect_fvg()
         m15_obs = e_m15.detect_order_blocks(m15_ev)
         m15_fvgs = e_m15.detect_fvg()
+        m5_obs = e_m5.detect_order_blocks(m5_ev)
+        m5_fvgs = e_m5.detect_fvg()
         sweeps = e_m1.detect_liquidity_sweeps()
         pd = e_m15.detect_premium_discount()
         atr = e_m1.calculate_atr(14)
         
-        print(f"  • Macro Trend (H4): {h4_trend}")
-        print(f"  • Intermediate Trend (H1): {h1_trend}")
-        print(f"  • Intraday Trend (M15): {m15_trend}")
+        print(f"  • Macro Intraday Trend (M15): {m15_trend}")
+        print(f"  • Intermediate Trend (M5): {m5_trend}")
         print(f"  • ATR (M1 Volatility): ${atr:.2f}")
         print(f"  • Premium/Discount Range: Low=${pd.get('range_low', 0):.2f} | Eq=${pd.get('eq', 0):.2f} | High=${pd.get('range_high', 0):.2f}")
-        print(f"  • Institutional POIs: {len(h1_obs + m15_obs)} Order Blocks, {len(h1_fvgs + m15_fvgs)} FVGs")
+        print(f"  • Refined Institutional POIs: {len(m15_obs + m5_obs)} Order Blocks, {len(m15_fvgs + m5_fvgs)} FVGs")
         print(f"  • Liquidity Sweeps Detected: {len(sweeps)}")
         
         # 6. Signal Evaluation Simulation
@@ -120,12 +115,12 @@ async def run_diagnostics():
             symbol="XAU/USD",
             current_price=current_price,
             events=m1_ev,
-            obs=h1_obs + m15_obs,
-            fvgs=h1_fvgs + m15_fvgs,
+            obs=m15_obs + m5_obs,
+            fvgs=m15_fvgs + m5_fvgs,
             sweeps=sweeps,
+            m15_trend=m15_trend,
+            m5_trend=m5_trend,
             htf_trend=m15_trend,
-            h1_trend=h1_trend,
-            h4_trend=h4_trend,
             pd_zones=pd,
             trade_manager=tm,
             atr=atr,

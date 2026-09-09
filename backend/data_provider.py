@@ -134,8 +134,8 @@ class DataProvider:
                 
                 # Sort from oldest to newest
                 formatted_data.sort(key=lambda x: x['timestamp'])
-                # Dynamic TTL: M1=1min, M15=5min, H1=15min, H4=30min
-                ttl_mins = 1 if "1min" in interval else (5 if "15min" in interval else (15 if "1h" in interval else 30))
+                # Dynamic TTL: M1=1min, M5=2min, M15=5min, H1=15min, H4=30min
+                ttl_mins = 1 if "1min" in interval else (2 if "5min" in interval else (5 if "15min" in interval else (15 if "1h" in interval else 30)))
                 self._cache[cache_key] = (now + timedelta(minutes=ttl_mins), formatted_data)
                 return formatted_data
             else:
@@ -251,6 +251,22 @@ class DataProvider:
         file_path = os.path.join(os.path.dirname(__file__), 'data', filename)
         
         if not os.path.exists(file_path):
+            if interval == "5min":
+                m1_data = self.get_historical_data_from_csv(symbol, "1min")
+                if m1_data:
+                    m5_data = []
+                    for i in range(0, len(m1_data), 5):
+                        chunk = m1_data[i:i+5]
+                        if not chunk: continue
+                        m5_data.append({
+                            'timestamp': chunk[0]['timestamp'],
+                            'open': chunk[0]['open'],
+                            'high': max(c['high'] for c in chunk),
+                            'low': min(c['low'] for c in chunk),
+                            'close': chunk[-1]['close'],
+                            'volume': sum(c.get('volume', 0) for c in chunk)
+                        })
+                    return m5_data[-max_records:] if max_records else m5_data
             return []
             
         try:

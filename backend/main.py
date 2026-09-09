@@ -6,7 +6,7 @@ import asyncio
 import json
 import os
 import traceback
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -103,137 +103,138 @@ async def run_smc_analysis(tick: dict):
                 app.state.market_data = {}
                 
             if symbol not in app.state.market_data:
-                # Fetch initial historical data in threadpool to keep event loop free
-                df_h4 = await asyncio.to_thread(data_provider.get_historical_data, symbol, interval="4h", use_csv=False)
-                df_h1 = await asyncio.to_thread(data_provider.get_historical_data, symbol, interval="1h", use_csv=False)
-                df_htf = await asyncio.to_thread(data_provider.get_historical_data, symbol, interval="15min", use_csv=False)
-                df_ltf = await asyncio.to_thread(data_provider.get_historical_data, symbol, interval="1min", use_csv=False)
+                # Fetch initial historical data for M15, M5, M1 in threadpool to keep event loop free
+                df_m15 = await asyncio.to_thread(data_provider.get_historical_data, symbol, interval="15min", use_csv=False)
+                df_m5 = await asyncio.to_thread(data_provider.get_historical_data, symbol, interval="5min", use_csv=False)
+                df_m1 = await asyncio.to_thread(data_provider.get_historical_data, symbol, interval="1min", use_csv=False)
                 
-                if not df_htf or not df_ltf or not df_h1 or not df_h4:
-                    print(f"[{symbol}] Failed to fetch initial data.")
+                if not df_m15 or not df_m5 or not df_m1:
+                    print(f"[{symbol}] Failed to fetch initial data for M15/M5/M1.")
                     return
                     
-                print(f"[{symbol}] Initialized data cache: {len(df_h4)} H4, {len(df_h1)} H1, {len(df_htf)} M15, {len(df_ltf)} M1 candles.")
-                app.state.market_data[symbol] = {"ltf": df_ltf, "htf": df_htf, "h1": df_h1, "h4": df_h4}
+                print(f"[{symbol}] Initialized data cache: {len(df_m15)} M15, {len(df_m5)} M5, {len(df_m1)} M1 candles.")
+                app.state.market_data[symbol] = {"m1": df_m1, "m5": df_m5, "m15": df_m15, "ltf": df_m1, "htf": df_m15}
             else:
-                df_ltf = app.state.market_data[symbol]["ltf"]
-                df_htf = app.state.market_data[symbol]["htf"]
-                df_h1 = app.state.market_data[symbol]["h1"]
-                df_h4 = app.state.market_data[symbol]["h4"]
+                df_m1 = app.state.market_data[symbol].get("m1", app.state.market_data[symbol].get("ltf"))
+                df_m5 = app.state.market_data[symbol].get("m5", [])
+                df_m15 = app.state.market_data[symbol].get("m15", app.state.market_data[symbol].get("htf"))
                 
-                # --- Update LTF (1min) ---
-                if df_ltf:
-                    last_ltf = df_ltf[-1]
-                    last_ltf_time = last_ltf['timestamp']
-                    if isinstance(last_ltf_time, str):
+                # --- Update LTF (M1) ---
+                if df_m1:
+                    last_m1 = df_m1[-1]
+                    last_m1_time = last_m1['timestamp']
+                    if isinstance(last_m1_time, str):
                         try:
-                            last_ltf_time_obj = datetime.fromisoformat(last_ltf_time.replace('Z', '+00:00'))
+                            last_m1_time_obj = datetime.fromisoformat(last_m1_time.replace('Z', '+00:00'))
                         except Exception:
-                            last_ltf_time_obj = datetime.now()
+                            last_m1_time_obj = datetime.now()
                     else:
-                        last_ltf_time_obj = last_ltf_time
+                        last_m1_time_obj = last_m1_time
                         
-                    time_diff_ltf = (tick_time_obj.replace(tzinfo=None) - last_ltf_time_obj.replace(tzinfo=None)).total_seconds()
+                    time_diff_m1 = (tick_time_obj.replace(tzinfo=None) - last_m1_time_obj.replace(tzinfo=None)).total_seconds()
                     
-                    if 0 <= time_diff_ltf < 60: # Within 1 minute
-                        last_ltf['close'] = tick_price
-                        last_ltf['high'] = max(last_ltf['high'], tick_price)
-                        last_ltf['low'] = min(last_ltf['low'], tick_price)
+                    if 0 <= time_diff_m1 < 60: # Within 1 minute
+                        last_m1['close'] = tick_price
+                        last_m1['high'] = max(last_m1['high'], tick_price)
+                        last_m1['low'] = min(last_m1['low'], tick_price)
                     else:
                         new_candle = {
                             'timestamp': tick_time_obj.isoformat(),
                             'open': tick_price, 'high': tick_price, 'low': tick_price, 'close': tick_price, 'volume': 0
                         }
-                        df_ltf.append(new_candle)
-                        if len(df_ltf) > 1000: df_ltf.pop(0)
+                        df_m1.append(new_candle)
+                        if len(df_m1) > 1000: df_m1.pop(0)
 
-                # --- Update HTF (15m) ---
-                if df_htf:
-                    last_htf = df_htf[-1]
-                    last_htf_time = last_htf['timestamp']
-                    if isinstance(last_htf_time, str):
+                # --- Update MTF (M5) ---
+                if df_m5:
+                    last_m5 = df_m5[-1]
+                    last_m5_time = last_m5['timestamp']
+                    if isinstance(last_m5_time, str):
                         try:
-                            last_htf_time_obj = datetime.fromisoformat(last_htf_time.replace('Z', '+00:00'))
+                            last_m5_time_obj = datetime.fromisoformat(last_m5_time.replace('Z', '+00:00'))
                         except Exception:
-                            last_htf_time_obj = datetime.now()
+                            last_m5_time_obj = datetime.now()
                     else:
-                        last_htf_time_obj = last_htf_time
+                        last_m5_time_obj = last_m5_time
                         
-                    time_diff_htf = (tick_time_obj.replace(tzinfo=None) - last_htf_time_obj.replace(tzinfo=None)).total_seconds()
+                    time_diff_m5 = (tick_time_obj.replace(tzinfo=None) - last_m5_time_obj.replace(tzinfo=None)).total_seconds()
                     
-                    if 0 <= time_diff_htf < 900: # Within 15 minutes
-                        last_htf['close'] = tick_price
-                        last_htf['high'] = max(last_htf['high'], tick_price)
-                        last_htf['low'] = min(last_htf['low'], tick_price)
+                    if 0 <= time_diff_m5 < 300: # Within 5 minutes
+                        last_m5['close'] = tick_price
+                        last_m5['high'] = max(last_m5['high'], tick_price)
+                        last_m5['low'] = min(last_m5['low'], tick_price)
                     else:
-                        new_htf_candle = {
+                        new_m5_candle = {
                             'timestamp': tick_time_obj.isoformat(),
                             'open': tick_price, 'high': tick_price, 'low': tick_price, 'close': tick_price, 'volume': 0
                         }
-                        df_htf.append(new_htf_candle)
-                        if len(df_htf) > 1000: df_htf.pop(0)
-                        
-                # Update H1 and H4 candle prices in-memory
-                if df_h1:
-                    df_h1[-1]['close'] = tick_price
-                    df_h1[-1]['high'] = max(df_h1[-1]['high'], tick_price)
-                    df_h1[-1]['low'] = min(df_h1[-1]['low'], tick_price)
-                if df_h4:
-                    df_h4[-1]['close'] = tick_price
-                    df_h4[-1]['high'] = max(df_h4[-1]['high'], tick_price)
-                    df_h4[-1]['low'] = min(df_h4[-1]['low'], tick_price)
-                
-            # Run SMC Engine on LTF (M1)
-            engine_ltf = SMCEngine(df_ltf)
-            events = engine_ltf.detect_bos_choch()
-            sweeps = engine_ltf.detect_liquidity_sweeps()
-            snr_zones = engine_ltf.detect_support_resistance()
-            snd_zones = engine_ltf.detect_supply_demand()
-            pd_zones = engine_ltf.detect_premium_discount()
-            fibo_ote = engine_ltf.detect_fibo_ote()
-            poc_price = engine_ltf.calculate_volume_profile(lookback=100)
-            amd_setups = engine_ltf.detect_amd()
-            
-            # Run SMC Engine on HTF (M15)
-            engine_htf = SMCEngine(df_htf)
-            htf_events = engine_htf.detect_bos_choch()
-            m15_obs = engine_htf.detect_order_blocks(htf_events)
-            m15_fvgs = engine_htf.detect_fvg()
-            m15_breakers = engine_htf.detect_breaker_blocks(htf_events)
-            
-            htf_trend = None
-            if htf_events:
-                last_htf_event = htf_events[-1]
-                if "BULLISH" in last_htf_event['type']:
-                    htf_trend = "BULLISH"
-                elif "BEARISH" in last_htf_event['type']:
-                    htf_trend = "BEARISH"
-            
-            # Run SMC Engine on H4
-            h4_trend = None
-            if df_h4:
-                h4_events = SMCEngine(df_h4).detect_bos_choch()
-                if h4_events:
-                    h4_trend = "BULLISH" if "BULLISH" in h4_events[-1]['type'] else "BEARISH"
-                    
-            # Run SMC Engine on H1
-            h1_trend = None
-            h1_obs = []
-            h1_fvgs = []
-            h1_breakers = []
-            if df_h1:
-                h1_engine = SMCEngine(df_h1)
-                h1_events = h1_engine.detect_bos_choch()
-                h1_fvgs = h1_engine.detect_fvg()
-                h1_obs = h1_engine.detect_order_blocks(h1_events)
-                h1_breakers = h1_engine.detect_breaker_blocks(h1_events)
-                if h1_events:
-                    h1_trend = "BULLISH" if "BULLISH" in h1_events[-1]['type'] else "BEARISH"
+                        df_m5.append(new_m5_candle)
+                        if len(df_m5) > 1000: df_m5.pop(0)
 
-            # Combine M15 and H1 institutional POIs
-            combined_obs = h1_obs + m15_obs
-            combined_fvgs = h1_fvgs + m15_fvgs
-            combined_breakers = h1_breakers + m15_breakers
+                # --- Update HTF (M15) ---
+                if df_m15:
+                    last_m15 = df_m15[-1]
+                    last_m15_time = last_m15['timestamp']
+                    if isinstance(last_m15_time, str):
+                        try:
+                            last_m15_time_obj = datetime.fromisoformat(last_m15_time.replace('Z', '+00:00'))
+                        except Exception:
+                            last_m15_time_obj = datetime.now()
+                    else:
+                        last_m15_time_obj = last_m15_time
+                        
+                    time_diff_m15 = (tick_time_obj.replace(tzinfo=None) - last_m15_time_obj.replace(tzinfo=None)).total_seconds()
+                    
+                    if 0 <= time_diff_m15 < 900: # Within 15 minutes
+                        last_m15['close'] = tick_price
+                        last_m15['high'] = max(last_m15['high'], tick_price)
+                        last_m15['low'] = min(last_m15['low'], tick_price)
+                    else:
+                        new_m15_candle = {
+                            'timestamp': tick_time_obj.isoformat(),
+                            'open': tick_price, 'high': tick_price, 'low': tick_price, 'close': tick_price, 'volume': 0
+                        }
+                        df_m15.append(new_m15_candle)
+                        if len(df_m15) > 1000: df_m15.pop(0)
+
+            # Run SMC Engine on LTF (M1)
+            engine_m1 = SMCEngine(df_m1)
+            events = engine_m1.detect_bos_choch()
+            sweeps = engine_m1.detect_liquidity_sweeps()
+            snr_zones = engine_m1.detect_support_resistance()
+            snd_zones = engine_m1.detect_supply_demand()
+            fibo_ote = engine_m1.detect_fibo_ote()
+            poc_price = engine_m1.calculate_volume_profile(lookback=100)
+            amd_setups = engine_m1.detect_amd()
+            
+            # Run SMC Engine on MTF (M5)
+            engine_m5 = SMCEngine(df_m5) if df_m5 else None
+            m5_events = engine_m5.detect_bos_choch() if engine_m5 else []
+            m5_obs = engine_m5.detect_order_blocks(m5_events) if engine_m5 else []
+            m5_fvgs = engine_m5.detect_fvg() if engine_m5 else []
+            m5_breakers = engine_m5.detect_breaker_blocks(m5_events) if engine_m5 else []
+            m5_trend = None
+            if m5_events:
+                last_m5_event = m5_events[-1]
+                m5_trend = "BULLISH" if "BULLISH" in last_m5_event['type'] else "BEARISH"
+
+            # Run SMC Engine on HTF (M15)
+            engine_m15 = SMCEngine(df_m15)
+            m15_events = engine_m15.detect_bos_choch()
+            m15_obs = engine_m15.detect_order_blocks(m15_events)
+            m15_fvgs = engine_m15.detect_fvg()
+            m15_breakers = engine_m15.detect_breaker_blocks(m15_events)
+            pd_zones = engine_m15.detect_premium_discount()
+            
+            m15_trend = None
+            if m15_events:
+                last_m15_event = m15_events[-1]
+                m15_trend = "BULLISH" if "BULLISH" in last_m15_event['type'] else "BEARISH"
+
+            # Combine M15 and M5 institutional POIs (refined, tight zones)
+            combined_obs = m15_obs + m5_obs
+            combined_fvgs = m15_fvgs + m5_fvgs
+            combined_breakers = m15_breakers + m5_breakers
 
             # DXY Trend for Intermarket Correlation (using cached/async data)
             dxy_trend = None
@@ -266,14 +267,14 @@ async def run_smc_analysis(tick: dict):
                 app.state.last_scan_log[symbol] = now_sec
                 active_c = len([t for t in trade_manager.tracked_trades if t.get('symbol') == symbol])
                 cb_status = "LOCKED" if not allowed else f"OK ({trade_manager.consecutive_losses}/3 SLs, {trade_manager.daily_pnl:.1f}R)"
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] [SCANNING] {symbol}: {tick_price:.2f} | H4: {h4_trend or 'N/A'} | H1: {h1_trend or 'N/A'} | M15: {htf_trend or 'N/A'} | Active: {active_c} | Circuit Breaker: {cb_status}")
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] [SCANNING] {symbol}: {tick_price:.2f} | M15: {m15_trend or 'N/A'} | M5: {m5_trend or 'N/A'} | Active: {active_c} | Circuit Breaker: {cb_status}")
 
             # Check for Signals ONLY if we don't already have an ACTIVE trade for this symbol
             signal = None
             if not trade_manager.has_running_trade(symbol):
                 if allowed:
-                    atr = engine_ltf.calculate_atr(period=14)
-                    reversal_patterns = engine_ltf.detect_reversal_patterns()
+                    atr = engine_m1.calculate_atr(period=14)
+                    reversal_patterns = engine_m1.detect_reversal_patterns()
                     
                     signal = await signal_generator.evaluate_confluence(
                         symbol=symbol,
@@ -282,9 +283,9 @@ async def run_smc_analysis(tick: dict):
                         obs=combined_obs,
                         fvgs=combined_fvgs,
                         sweeps=sweeps,
-                        htf_trend=htf_trend,
-                        h1_trend=h1_trend,
-                        h4_trend=h4_trend,
+                        m15_trend=m15_trend,
+                        m5_trend=m5_trend,
+                        htf_trend=m15_trend,
                         snr_zones=snr_zones,
                         snd_zones=snd_zones,
                         pd_zones=pd_zones,
@@ -297,7 +298,7 @@ async def run_smc_analysis(tick: dict):
                         atr=atr,
                         reversal_patterns=reversal_patterns,
                         db=db,
-                        engine_ltf=engine_ltf
+                        engine_ltf=engine_m1
                     )
                     # Process and register new signal atomically
                     if signal and signal.get("status") not in ["SKIPPED", "REJECTED"]:
@@ -392,15 +393,14 @@ async def startup_event():
     async def init_market_and_connect():
         for sym in symbols:
             try:
-                print(f"[{sym}] Pre-loading historical candles...")
-                h4 = await asyncio.to_thread(data_provider.get_historical_data, sym, interval="4h", use_csv=False)
-                h1 = await asyncio.to_thread(data_provider.get_historical_data, sym, interval="1h", use_csv=False)
-                htf = await asyncio.to_thread(data_provider.get_historical_data, sym, interval="15min", use_csv=False)
-                ltf = await asyncio.to_thread(data_provider.get_historical_data, sym, interval="1min", use_csv=False)
+                print(f"[{sym}] Pre-loading historical candles (M15, M5, M1)...")
+                m15 = await asyncio.to_thread(data_provider.get_historical_data, sym, interval="15min", use_csv=False)
+                m5 = await asyncio.to_thread(data_provider.get_historical_data, sym, interval="5min", use_csv=False)
+                m1 = await asyncio.to_thread(data_provider.get_historical_data, sym, interval="1min", use_csv=False)
                 if not hasattr(app.state, 'market_data'):
                     app.state.market_data = {}
-                app.state.market_data[sym] = {"ltf": ltf, "htf": htf, "h1": h1, "h4": h4}
-                print(f"[{sym}] Pre-load complete! Ready for live stream.")
+                app.state.market_data[sym] = {"m1": m1, "m5": m5, "m15": m15, "ltf": m1, "htf": m15}
+                print(f"[{sym}] Pre-load complete! ({len(m15 or [])} M15, {len(m5 or [])} M5, {len(m1 or [])} M1). Ready for live stream.")
             except Exception as e:
                 print(f"[{sym}] Pre-load warning: {e}")
                 
@@ -467,6 +467,11 @@ async def get_stats():
 class SettingsModel(BaseModel):
     account_balance: float
     risk_percentage: float
+    min_tp_pips: Optional[float] = 150.0
+    max_tp_pips: Optional[float] = 200.0
+    max_sl_pips: Optional[float] = 70.0
+    min_sl_pips: Optional[float] = 25.0
+    be_trigger_pips: Optional[float] = 50.0
 
 @app.get("/api/settings")
 async def get_settings():
@@ -476,7 +481,12 @@ async def get_settings():
 async def update_settings(settings: SettingsModel):
     new_settings = {
         "account_balance": settings.account_balance,
-        "risk_percentage": settings.risk_percentage
+        "risk_percentage": settings.risk_percentage,
+        "min_tp_pips": settings.min_tp_pips,
+        "max_tp_pips": settings.max_tp_pips,
+        "max_sl_pips": settings.max_sl_pips,
+        "min_sl_pips": settings.min_sl_pips,
+        "be_trigger_pips": settings.be_trigger_pips
     }
     settings_manager.save_settings(new_settings)
     return {"status": "success", "settings": new_settings}

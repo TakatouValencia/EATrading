@@ -70,12 +70,16 @@ async def send_discord_alert(signal: dict):
     # Add Smart Scaling instructions so users execute it correctly
     entry = float(signal.get('entry', 0))
     sl = float(signal.get('sl', 0))
-    atr_dist = abs(entry - sl) / 1.5 # Estimate ATR from SL distance
-    partial_tp = entry + (0.5 * atr_dist) if "BUY" in signal.get('type', '') else entry - (0.5 * atr_dist)
+    tp = float(signal.get('tp', 0))
+    is_xau = "XAU" in symbol
+    pip_unit = 0.10 if is_xau else 0.0001
+    sl_pips = abs(entry - sl) / pip_unit
+    tp_pips = abs(tp - entry) / pip_unit
+    be_target = entry + (5.0 if is_xau else 0.0050) if "BUY" in signal.get('type', '') else entry - (5.0 if is_xau else 0.0050)
     
     embed["fields"].append({
-        "name": "⚙️ Smart Scaling Guide", 
-        "value": f"1. Amankan **50% Profit** di area **{partial_tp:.2f}**.\n2. Segera geser SL ke **Break Even ({entry:.2f})** setelah partial.\n3. Biarkan sisa 50% *running* ke Final TP.", 
+        "name": "⚙️ Execution & Risk Guide (Low TF: M15/M5/M1)", 
+        "value": f"• **Take Profit**: **{tp_pips:.0f} Pips** ({tp:.2f})\n• **Stop Loss**: **{sl_pips:.0f} Pips** ({sl:.2f}, Maks 70 Pips)\n• **Proteksi BE**: Geser SL ke **Entry ({entry:.2f})** saat harga capai **{be_target:.2f} (+50 pips)**.", 
         "inline": False
     })
         
@@ -92,16 +96,25 @@ async def send_discord_trade_update(signal: dict, new_status: str, pnl: float):
     if not DISCORD_WEBHOOK_URL:
         return
         
-    color = 0x10B981 if new_status == "WIN" else (0x6B7280 if new_status in ["CANCELLED", "MISSED"] else 0xF43F5E)
-    status_icon = "✅" if new_status == "WIN" else ("🗑️" if new_status in ["CANCELLED", "MISSED"] else "❌")
-    
     if new_status == "WIN":
+        color = 0x10B981
+        status_icon = "✅"
         result_text = "Take Profit (TP) 🎯"
+    elif new_status == "BREAK_EVEN":
+        color = 0x3B82F6
+        status_icon = "🛡️"
+        result_text = "Break-Even Protection (0 Loss) 🛡️"
     elif new_status == "CANCELLED":
+        color = 0x6B7280
+        status_icon = "🗑️"
         result_text = "Cancelled / Expired 🗑️"
     elif new_status == "MISSED":
+        color = 0x6B7280
+        status_icon = "🏃💨"
         result_text = "Missed (Hit TP Before Entry) 🏃💨"
     else:
+        color = 0xF43F5E
+        status_icon = "🛑"
         result_text = "Stop Loss (SL) 🛑"
     
     embed = {
