@@ -30,14 +30,36 @@ async def run_2month_backtest():
 
     print("\n[1/4] Mengambil data riwayat 60 hari dari Yahoo Finance (GC=F)...")
     ticker = yf.Ticker("GC=F")
+    df_1h_raw = ticker.history(period="60d", interval="1h")
+    df_30m_raw = ticker.history(period="60d", interval="30m")
     df_15m_raw = ticker.history(period="60d", interval="15m")
     df_5m_raw = ticker.history(period="60d", interval="5m")
 
-    if df_15m_raw.empty or df_5m_raw.empty:
+    if df_15m_raw.empty or df_5m_raw.empty or df_1h_raw.empty:
         print("[ERROR] Gagal mengunduh data riwayat 60 hari.")
         return
 
     # Format data
+    df_1h = []
+    for idx, r in df_1h_raw.iterrows():
+        df_1h.append({
+            'timestamp': idx.isoformat(),
+            'open': float(r['Open']), 'high': float(r['High']),
+            'low': float(r['Low']), 'close': float(r['Close']),
+            'volume': float(r.get('Volume', 0))
+        })
+    df_1h.sort(key=lambda x: x['timestamp'])
+
+    df_30m = []
+    for idx, r in df_30m_raw.iterrows():
+        df_30m.append({
+            'timestamp': idx.isoformat(),
+            'open': float(r['Open']), 'high': float(r['High']),
+            'low': float(r['Low']), 'close': float(r['Close']),
+            'volume': float(r.get('Volume', 0))
+        })
+    df_30m.sort(key=lambda x: x['timestamp'])
+
     df_15m = []
     for idx, r in df_15m_raw.iterrows():
         df_15m.append({
@@ -61,8 +83,10 @@ async def run_2month_backtest():
     start_date = df_5m[0]['timestamp'][:10]
     end_date = df_5m[-1]['timestamp'][:10]
     print(f"  * Periode: {start_date} s/d {end_date}")
-    print(f"  * Candle M15: {len(df_15m)} batang")
-    print(f"  * Candle M5 : {len(df_5m)} batang")
+    print(f"  * Candle H1  : {len(df_1h)} batang")
+    print(f"  * Candle M30 : {len(df_30m)} batang")
+    print(f"  * Candle M15 : {len(df_15m)} batang")
+    print(f"  * Candle M5  : {len(df_5m)} batang")
 
     print("\n[2/4] Menginisialisasi Mesin Backtest...")
     sg = SignalGenerator(cooldown_minutes=30)
@@ -104,6 +128,8 @@ async def run_2month_backtest():
 
     print("\n[3/4] Menjalankan simulasi langkah per langkah (M5 playback)...")
     from bisect import bisect_right
+    timestamps_1h = [c['timestamp'] for c in df_1h]
+    timestamps_30m = [c['timestamp'] for c in df_30m]
     timestamps_15m = [c['timestamp'] for c in df_15m]
     window_size = 200
     step = 2 # step through every 2 candles (10 mins) for realistic speed
@@ -119,6 +145,28 @@ async def run_2month_backtest():
         curr_time = curr_candle['timestamp']
         curr_price = curr_candle['close']
         
+        # Fast bisect for H1 Macro window
+        idx_1h = bisect_right(timestamps_1h, curr_time)
+        if idx_1h >= 20:
+            curr_1h_window = df_1h[max(0, idx_1h - window_size):idx_1h]
+            e_1h = SMCEngine(curr_1h_window)
+            ev_1h = e_1h.detect_bos_choch()
+            obs_1h = e_1h.detect_order_blocks(ev_1h)
+            pd_1h = e_1h.detect_premium_discount()
+            trend_1h = ("BULLISH" if "BULLISH" in ev_1h[-1]['type'] else "BEARISH") if ev_1h else None
+        else:
+            obs_1h, pd_1h, trend_1h = [], None, None
+
+        # Fast bisect for M30 window
+        idx_30m = bisect_right(timestamps_30m, curr_time)
+        if idx_30m >= 20:
+            curr_30m_window = df_30m[max(0, idx_30m - window_size):idx_30m]
+            e_30m = SMCEngine(curr_30m_window)
+            ev_30m = e_30m.detect_bos_choch()
+            trend_30m = ("BULLISH" if "BULLISH" in ev_30m[-1]['type'] else "BEARISH") if ev_30m else None
+        else:
+            trend_30m = None
+
         # Fast bisect for M15 window
         idx_15m = bisect_right(timestamps_15m, curr_time)
         if idx_15m < 50:
@@ -178,7 +226,11 @@ async def run_2month_backtest():
                 engine_ltf=e_5m,
                 current_time_str=curr_time,
                 qm_patterns=combined_qms,
-                rbs_sbr=combined_rbs
+                rbs_sbr=combined_rbs,
+                h1_trend=trend_1h,
+                h1_obs=obs_1h,
+                h1_pd_zones=pd_1h,
+                m30_trend=trend_30m
             )
             if sig and sig.get("status") not in ["SKIPPED", "REJECTED"]:
                 # Periksa duplikasi

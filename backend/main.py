@@ -103,7 +103,8 @@ async def run_smc_analysis(tick: dict):
                 app.state.market_data = {}
                 
             if symbol not in app.state.market_data:
-                # Fetch initial historical data for M15, M5, M1 in threadpool to keep event loop free
+                # Fetch initial historical data for H1, M15, M5, M1 in threadpool to keep event loop free
+                df_h1 = await asyncio.to_thread(data_provider.get_historical_data, symbol, interval="1h", use_csv=False)
                 df_m15 = await asyncio.to_thread(data_provider.get_historical_data, symbol, interval="15min", use_csv=False)
                 df_m5 = await asyncio.to_thread(data_provider.get_historical_data, symbol, interval="5min", use_csv=False)
                 df_m1 = await asyncio.to_thread(data_provider.get_historical_data, symbol, interval="1min", use_csv=False)
@@ -112,8 +113,8 @@ async def run_smc_analysis(tick: dict):
                     print(f"[{symbol}] Failed to fetch initial data for M15/M5/M1.")
                     return
                     
-                print(f"[{symbol}] Initialized data cache: {len(df_m15)} M15, {len(df_m5)} M5, {len(df_m1)} M1 candles.")
-                app.state.market_data[symbol] = {"m1": df_m1, "m5": df_m5, "m15": df_m15, "ltf": df_m1, "htf": df_m15}
+                print(f"[{symbol}] Initialized data cache: {len(df_h1 or [])} H1, {len(df_m15)} M15, {len(df_m5)} M5, {len(df_m1)} M1 candles.")
+                app.state.market_data[symbol] = {"m1": df_m1, "m5": df_m5, "m15": df_m15, "h1": df_h1, "ltf": df_m1, "htf": df_m15}
             else:
                 df_m1 = app.state.market_data[symbol].get("m1", app.state.market_data[symbol].get("ltf"))
                 df_m5 = app.state.market_data[symbol].get("m5", [])
@@ -218,6 +219,14 @@ async def run_smc_analysis(tick: dict):
                 last_m5_event = m5_events[-1]
                 m5_trend = "BULLISH" if "BULLISH" in last_m5_event['type'] else "BEARISH"
 
+            # Run SMC Engine on Macro (H1)
+            df_h1 = app.state.market_data[symbol].get("h1", [])
+            engine_h1 = SMCEngine(df_h1) if df_h1 else None
+            h1_events = engine_h1.detect_bos_choch() if engine_h1 else []
+            h1_obs = engine_h1.detect_order_blocks(h1_events) if engine_h1 else []
+            h1_pd = engine_h1.detect_premium_discount() if engine_h1 else None
+            h1_trend = ("BULLISH" if "BULLISH" in h1_events[-1]['type'] else "BEARISH") if h1_events else None
+
             # Run SMC Engine on HTF (M15)
             engine_m15 = SMCEngine(df_m15)
             m15_events = engine_m15.detect_bos_choch()
@@ -269,7 +278,7 @@ async def run_smc_analysis(tick: dict):
                 app.state.last_scan_log[symbol] = now_sec
                 active_c = len([t for t in trade_manager.tracked_trades if t.get('symbol') == symbol])
                 cb_status = "LOCKED" if not allowed else f"OK ({trade_manager.consecutive_losses}/3 SLs, {trade_manager.daily_pnl:.1f}R)"
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] [SCANNING] {symbol}: {tick_price:.2f} | M15: {m15_trend or 'N/A'} | M5: {m5_trend or 'N/A'} | Active: {active_c} | Circuit Breaker: {cb_status}")
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] [SCANNING] {symbol}: {tick_price:.2f} | H1: {h1_trend or 'N/A'} | M15: {m15_trend or 'N/A'} | M5: {m5_trend or 'N/A'} | Active: {active_c} | Circuit Breaker: {cb_status}")
 
             # Check for Signals ONLY if we don't already have an ACTIVE trade for this symbol
             signal = None
@@ -288,6 +297,7 @@ async def run_smc_analysis(tick: dict):
                         m15_trend=m15_trend,
                         m5_trend=m5_trend,
                         htf_trend=m15_trend,
+                        h1_trend=h1_trend,
                         snr_zones=snr_zones,
                         snd_zones=snd_zones,
                         pd_zones=pd_zones,
@@ -302,7 +312,9 @@ async def run_smc_analysis(tick: dict):
                         db=db,
                         engine_ltf=engine_m1,
                         qm_patterns=combined_qms,
-                        rbs_sbr=combined_rbs
+                        rbs_sbr=combined_rbs,
+                        h1_obs=h1_obs,
+                        h1_pd_zones=h1_pd
                     )
                     # Process and register new signal atomically
                     if signal and signal.get("status") not in ["SKIPPED", "REJECTED"]:

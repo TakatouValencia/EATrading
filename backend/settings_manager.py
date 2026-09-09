@@ -10,7 +10,7 @@ DEFAULT_SETTINGS = {
     "max_tp_pips": 200.0,
     "max_sl_pips": 70.0,
     "min_sl_pips": 25.0,
-    "be_trigger_pips": 75.0
+    "be_trigger_pips": 50.0
 }
 
 def load_settings() -> dict:

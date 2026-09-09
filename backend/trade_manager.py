@@ -313,16 +313,22 @@ class TradeManager:
 
                 atr = float(trade.get('atr', abs(entry - sl) / 1.5)) # fallback to inferred ATR
                 
-                # Auto Break-Even (BE) Trigger: Move SL to entry when in profit >= 50 pips (or 40% of TP)
+                # Auto Break-Even (BE) Trigger: Move SL to entry when in profit >= be_trigger_pips (or 50% of TP)
                 is_xau = "XAU" in symbol
                 pip_unit = 0.10 if is_xau else 0.0001
-                be_trigger_dist = 50.0 * pip_unit
+                try:
+                    import settings_manager
+                    cfg_settings = settings_manager.load_settings()
+                    be_cfg_pips = float(cfg_settings.get("be_trigger_pips", 75.0))
+                except Exception:
+                    be_cfg_pips = 75.0
+                be_trigger_dist = be_cfg_pips * pip_unit
                 favorable_move = (price - entry) if is_buy else (entry - price)
                 tp_dist = abs(tp - entry)
-                trigger_dist = min(be_trigger_dist, 0.4 * tp_dist)
+                trigger_dist = min(be_trigger_dist, 0.5 * tp_dist)
                 
                 if favorable_move >= trigger_dist and not trade.get('is_be', False):
-                    new_sl = round(entry + (0.2 * pip_unit) if is_buy else entry - (0.2 * pip_unit), 2 if is_xau else 5)
+                    new_sl = round(entry + (0.5 * pip_unit) if is_buy else entry - (0.5 * pip_unit), 2 if is_xau else 5)
                     trade['sl_price'] = new_sl
                     trade['sl'] = new_sl
                     trade['is_be'] = True

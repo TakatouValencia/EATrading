@@ -54,10 +54,13 @@ class SignalGenerator:
                                   adx_h1: float = 25.0, adx_h4: float = 25.0,
                                   current_time_str: str = None,
                                   qm_patterns: List[Dict] = None,
-                                  rbs_sbr: List[Dict] = None) -> Optional[Dict]:
+                                  rbs_sbr: List[Dict] = None,
+                                  h1_obs: List[Dict] = None,
+                                  h1_pd_zones: Dict = None,
+                                  m30_trend: str = None) -> Optional[Dict]:
         """
         Evaluate if a new signal should be generated based on institutional SMC confluence.
-        Uses Low Timeframes: M15 (HTF/Macro Intraday), M5 (MTF Intermediate), M1 (LTF Execution).
+        Top-Down Architecture: H1 (Macro Bias) -> M15/M30 (Structural Shift) -> M5/M1 (Execution Snipe).
         Strict Risk: Max 70 pips SL, Target 150 - 200 pips TP.
         """
         # 1. Check Trading Allowed (Psychology & Circuit Breaker Limits)
@@ -108,7 +111,7 @@ class SignalGenerator:
 
         # Resolve Low Timeframe trends (M15 Macro, M5 Intermediate)
         macro_trend = m15_trend or htf_trend or h4_trend
-        inter_trend = m5_trend or h1_trend
+        inter_trend = m5_trend
 
         # Filter out blacklisted and rejected zones from incoming POIs
         blacklisted = db.get_blacklisted_zones(symbol) if db else set()
@@ -143,20 +146,52 @@ class SignalGenerator:
             confluence_score = 0
             reasons = []
 
-            # A. Macro Trend Alignment (M15 & M5)
-            # SMC Hierarchy: M15 is Macro Intraday Trend, M5 is Intermediate Trend
             trend_tag = "BULLISH" if is_bullish else "BEARISH"
             opposing_tag = "BEARISH" if is_bullish else "BULLISH"
 
+            # A0. H1 Macro Compass & M30 Alignment
+            if h1_trend:
+                if h1_trend == trend_tag:
+                    confluence_score += 3
+                    reasons.append(f"H1 Macro Bias Confirmed ({h1_trend}) (+3)")
+                else:
+                    # Strict Institutional Rule: NEVER trade against the H1 Macro Trend!
+                    return None
+
+            if m30_trend and m30_trend == trend_tag:
+                confluence_score += 1
+                reasons.append(f"M30 Structure Aligned ({m30_trend}) (+1)")
+
+            # A1. Check H1 Obstacle Walls
+            if h1_obs:
+                for hob in h1_obs:
+                    if is_bullish and hob.get('type') == 'OB_BEARISH' and not hob.get('mitigated', False):
+                        if current_price < hob['bottom'] <= current_price + (8.0 if is_xau else 0.0080):
+                            confluence_score -= 2
+                            reasons.append("Approaching H1 Supply (-2)")
+                    elif not is_bullish and hob.get('type') == 'OB_BULLISH' and not hob.get('mitigated', False):
+                        if current_price > hob['top'] >= current_price - (8.0 if is_xau else 0.0080):
+                            confluence_score -= 2
+                            reasons.append("Approaching H1 Demand (-2)")
+
+            # A2. H1 Wholesale Dealing Range
+            if h1_pd_zones:
+                if is_bullish and current_price <= h1_pd_zones.get('eq', float('inf')):
+                    confluence_score += 2
+                    reasons.append("In H1 Wholesale Discount Area (< 50% Eq) (+2)")
+                elif not is_bullish and current_price >= h1_pd_zones.get('eq', 0):
+                    confluence_score += 2
+                    reasons.append("In H1 Wholesale Premium Area (> 50% Eq) (+2)")
+
+            # A3. Macro Trend Alignment (M15 & M5)
+            # SMC Hierarchy: M15 is Macro Intraday Trend, M5 is Intermediate Trend
             if macro_trend == trend_tag and inter_trend == trend_tag:
                 confluence_score += 3
                 reasons.append(f"Full Low-TF Alignment (M15 & M5 {trend_tag})")
             elif macro_trend == trend_tag and inter_trend == opposing_tag:
-                # Institutional Retrace to Wholesale POI: Buying discount in uptrend / Selling premium in downtrend
                 confluence_score += 2
                 reasons.append(f"M15 {trend_tag} Macro with M5 Pullback into POI")
             elif macro_trend == opposing_tag and inter_trend == opposing_tag:
-                # Strong counter-trend: heavily penalize
                 confluence_score -= 3
                 reasons.append(f"Counter-Trend Warning (M15 & M5 {opposing_tag})")
             elif inter_trend == trend_tag or macro_trend == trend_tag:
