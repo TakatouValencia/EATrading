@@ -155,7 +155,7 @@ async def run_2month_backtest():
             pd_1h = e_1h.detect_premium_discount()
             trend_1h = ("BULLISH" if "BULLISH" in ev_1h[-1]['type'] else "BEARISH") if ev_1h else None
         else:
-            obs_1h, pd_1h, trend_1h = [], None, None
+            e_1h, obs_1h, pd_1h, trend_1h = None, [], None, None
 
         # Fast bisect for M30 window
         idx_30m = bisect_right(timestamps_30m, curr_time)
@@ -201,13 +201,31 @@ async def run_2month_backtest():
         combined_breakers = breakers_15m + breakers_5m
         combined_qms = qms_15m + qms_5m
         combined_rbs = rbs_15m + rbs_5m
+        combined_crts = e_15m.detect_crt() + e_5m.detect_crt()
+        combined_snds = e_15m.detect_supply_demand() + e_5m.detect_supply_demand()
+        snrs_15m = e_15m.detect_support_resistance()
+        adx_15m = e_15m.calculate_adx(14)
+        adx_1h = e_1h.calculate_adx(14) if e_1h else 25.0
 
-        # Risk limits check
+        # 1. Update existing trades and pending orders with the current candle's realistic price path
         tm.current_time_str = curr_time
         tm._check_daily_reset()
+        
+        is_green = curr_candle['close'] >= curr_candle['open']
+        p_open = curr_candle['open']
+        p_wick1 = curr_candle['low'] if is_green else curr_candle['high']
+        p_wick2 = curr_candle['high'] if is_green else curr_candle['low']
+        p_close = curr_candle['close']
+        
+        await tm.process_tick({'symbol': 'XAU/USD', 'price': p_open, 'timestamp': curr_time})
+        await tm.process_tick({'symbol': 'XAU/USD', 'price': p_wick1, 'timestamp': curr_time})
+        await tm.process_tick({'symbol': 'XAU/USD', 'price': p_wick2, 'timestamp': curr_time})
+        await tm.process_tick({'symbol': 'XAU/USD', 'price': p_close, 'timestamp': curr_time})
+
+        # 2. Risk limits and active trade check after candle finishes
         allowed, _ = tm.check_trading_allowed()
 
-        if allowed and not tm.has_running_trade("XAU/USD"):
+        if allowed and not tm.has_active_trade("XAU/USD"):
             sig = await sg.evaluate_confluence(
                 symbol="XAU/USD",
                 current_price=curr_price,
@@ -230,7 +248,12 @@ async def run_2month_backtest():
                 h1_trend=trend_1h,
                 h1_obs=obs_1h,
                 h1_pd_zones=pd_1h,
-                m30_trend=trend_30m
+                m30_trend=trend_30m,
+                crt_patterns=combined_crts,
+                snd_zones=combined_snds,
+                snr_zones=snrs_15m,
+                adx_m15=adx_15m,
+                adx_h1=adx_1h
             )
             if sig and sig.get("status") not in ["SKIPPED", "REJECTED"]:
                 # Periksa duplikasi
@@ -243,14 +266,6 @@ async def run_2month_backtest():
                 if not is_duplicate:
                     await tm.cancel_pending_trades("XAU/USD")
                     tm.add_trade(sig)
-
-        # Proses tick dengan pergerakan High, Low, Close candle saat ini secara realistis
-        is_green = curr_candle['close'] >= curr_candle['open']
-        p1 = curr_candle['low'] if is_green else curr_candle['high']
-        p2 = curr_candle['high'] if is_green else curr_candle['low']
-        await tm.process_tick({'symbol': 'XAU/USD', 'price': p1, 'timestamp': curr_time})
-        await tm.process_tick({'symbol': 'XAU/USD', 'price': p2, 'timestamp': curr_time})
-        await tm.process_tick({'symbol': 'XAU/USD', 'price': curr_candle['close'], 'timestamp': curr_time})
 
     print("\n[4/4] Menghitung Statistik & Laporan...")
     total_completed = stats['WIN'] + stats['LOSS'] + stats['BREAK_EVEN']
@@ -271,14 +286,15 @@ async def run_2month_backtest():
 
     report = f"""
 ======================================================================
-     HASIL BACKTEST 2 BULAN XAU/USD (PARTIAL TP + AUTO BREAK-EVEN)
+  HASIL BACKTEST 2 BULAN XAU/USD (PREMIUM DAILY INTRADAY SMC)
 ======================================================================
 Periode Pengujian      : {start_date} s/d {end_date} (60 Hari)
-Target Take Profit 1   : +70 Pips ($7.00) (Kunci 50% Lot & SL ke BE)
-Target Take Profit 2   : 150 - 200 Pips ($15.00 - $20.00) (Runner Swing)
-Maksimal Stop Loss     : Maksimal 70 Pips ($7.00)
-Proteksi Break-Even    : Otomatis di Level TP1 (+70 Pips) atau +50 Pips
-Circuit Breaker        : Maksimal 3 Consecutive Losses per Hari
+Target Take Profit 1   : Min 2.0R / +100-180 Pips (Kunci 50% Lot & SL ke BE)
+Target Take Profit 2   : Min 3.5R+ / Structural Runner
+Maksimal Stop Loss     : Struktural Swing (Floor 50p, Cap 90p)
+Proteksi Break-Even    : Otomatis di Level TP1 atau +1.2R
+Filter Jadwal Pasar    : Weekend Shield (Sabtu/Minggu Tutup) & London/NY Killzones
+Maksimal Trade Harian  : Kuota Maks 2 Trade per Hari (Quality Over Quantity)
 ----------------------------------------------------------------------
 Total Setup Selesai    : {total_completed}
 - Take Profit (WIN)    : {stats['WIN']} trade (Termasuk Partial TP1 Secured)

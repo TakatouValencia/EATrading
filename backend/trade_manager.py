@@ -10,13 +10,14 @@ class TradeManager:
         self.on_trade_closed = on_trade_closed
         self.daily_pnl = 0.0
         self.consecutive_losses = 0
+        self.daily_completed_trades = 0
         self.current_trading_day = None
         self.current_time_str = None
         self._load_tracked_trades()
         self._load_daily_stats()
 
     def _load_daily_stats(self):
-        """Compute today's consecutive losses and PnL from database to persist state across restarts."""
+        """Compute today's consecutive losses, completed trades and PnL from database to persist state across restarts."""
         try:
             today = datetime.now().date()
             self.current_trading_day = today
@@ -26,11 +27,14 @@ class TradeManager:
             
             consec_losses = 0
             daily_pnl = 0.0
+            completed_c = 0
             
             for s in today_signals:
                 status = s.get('status')
                 pnl = float(s.get('pnl', 0.0) or 0.0)
                 daily_pnl += pnl
+                if status in ['WIN', 'LOSS', 'BREAK_EVEN', 'PARTIAL_WIN']:
+                    completed_c += 1
                 if status == 'WIN':
                     consec_losses = 0
                 elif status == 'LOSS' or pnl < 0:
@@ -38,7 +42,8 @@ class TradeManager:
             
             self.consecutive_losses = consec_losses
             self.daily_pnl = daily_pnl
-            print(f"[RISK] Initialized daily stats: PnL = {self.daily_pnl:.2f}R, Consecutive Losses = {self.consecutive_losses}/3")
+            self.daily_completed_trades = completed_c
+            print(f"[RISK] Initialized daily stats: PnL = {self.daily_pnl:.2f}R, Consecutive Losses = {self.consecutive_losses}/3, Completed Trades = {self.daily_completed_trades}")
         except Exception as e:
             print(f"[RISK] Error initializing daily stats: {e}")
 
@@ -63,30 +68,40 @@ class TradeManager:
             print(f"[RISK] New trading day detected ({today}). Resetting daily stats.")
             self.daily_pnl = 0.0
             self.consecutive_losses = 0
+            self.daily_completed_trades = 0
             self.current_trading_day = today
 
     def _update_stats(self, won: bool, pnl: float):
         self._check_daily_reset()
         self.daily_pnl += pnl
+        self.daily_completed_trades += 1
         if won:
             self.consecutive_losses = 0
-            print(f"[RISK] Trade Won! Consecutive losses reset to 0. Daily PnL: {self.daily_pnl:.2f}R")
+            print(f"[RISK] Trade Won! Consecutive losses reset to 0. Daily PnL: {self.daily_pnl:.2f}R | Completed: {self.daily_completed_trades}")
         elif pnl == 0.0:
-            print(f"[RISK] Trade closed at Break-Even (0 PnL). Consecutive losses remain {self.consecutive_losses}/3. Daily PnL: {self.daily_pnl:.2f}R")
+            print(f"[RISK] Trade closed at Break-Even (0 PnL). Consecutive losses remain {self.consecutive_losses}/3. Daily PnL: {self.daily_pnl:.2f}R | Completed: {self.daily_completed_trades}")
         else:
             if pnl < 0:
                 self.consecutive_losses += 1
-                print(f"[RISK] Trade Lost (SL). Consecutive losses: {self.consecutive_losses}/3. Daily PnL: {self.daily_pnl:.2f}R")
+                print(f"[RISK] Trade Lost (SL). Consecutive losses: {self.consecutive_losses}/3. Daily PnL: {self.daily_pnl:.2f}R | Completed: {self.daily_completed_trades}")
                 if self.consecutive_losses >= 3:
                     print(f"[CIRCUIT BREAKER TRIGGERED] 3 Consecutive Stop Losses hit today! Trading is PAUSED until tomorrow.")
 
     def check_trading_allowed(self) -> tuple[bool, str]:
-        """Check if trading is allowed based on psychological risk limits."""
+        """Check if trading is allowed based on psychological risk limits and daily trade limits."""
         self._check_daily_reset()
         if self.daily_pnl <= -3.0: # -3% max drawdown (assuming 1R = 1%)
             return False, f"Daily Drawdown Limit Reached ({self.daily_pnl:.2f}R / -3.0R)"
         if self.consecutive_losses >= 3: # 3 max consecutive losses
             return False, f"Max Consecutive Losses Reached ({self.consecutive_losses}/3 SLs today). Trading paused."
+        try:
+            import settings_manager
+            cfg = settings_manager.load_settings()
+            max_daily = int(cfg.get("max_daily_trades", 2))
+            if self.daily_completed_trades >= max_daily:
+                return False, f"Daily Trades Quota Reached ({self.daily_completed_trades}/{max_daily} trades today). Paused for quality trade harian."
+        except Exception:
+            pass
         return True, "Allowed"
 
     def _load_tracked_trades(self):
@@ -173,8 +188,9 @@ class TradeManager:
                             now = now.replace(tzinfo=None)
                         elif now.tzinfo is None and ts_obj.tzinfo is not None:
                             ts_obj = ts_obj.replace(tzinfo=None)
-                        if now - ts_obj > timedelta(minutes=30):
-                            print(f"[{symbol}] PENDING trade expired (> 30 mins). Cancelling.")
+                        # Keep pending limit orders active for the duration of the session (3 hours)
+                        if now - ts_obj > timedelta(hours=3):
+                            print(f"[{symbol}] PENDING trade expired (> 3 hours). Cancelling.")
                             trade['status'] = 'CANCELLED'
                             
                             if 'poi_signature' in trade:
@@ -278,7 +294,8 @@ class TradeManager:
                             won = (is_buy and price > entry) or (not is_buy and price < entry)
                             new_status = 'WIN' if won else 'LOSS'
                             
-                            risk_dist = abs(entry - sl) if abs(entry - sl) > 0 else 0.0001
+                            initial_sl = float(trade.get('initial_sl', sl))
+                            risk_dist = abs(entry - initial_sl) if abs(entry - initial_sl) > 0.01 else 1.0
                             pnl = abs(price - entry) / risk_dist if won else -abs(price - entry) / risk_dist
                             
                             mfe_dist = abs(trade['mfe_price'] - entry)
@@ -334,8 +351,10 @@ class TradeManager:
                 initial_sl = float(trade.get('initial_sl', sl))
                 risk_dist = abs(entry - initial_sl) if abs(entry - initial_sl) > 0 else 0.0001
 
-                # 1. Partial Take Profit (TP1) Trigger: Secure 50% lot at +70 pips ($7.00 Gold) & Move SL to BE
-                partial_dist = partial_pips * pip_unit
+                # 1. Partial Take Profit (TP1) Trigger: Secure 50% lot at TP1 target & Move SL to BE
+                tp1_target = float(trade.get('tp1', entry + (partial_pips * pip_unit if is_buy else -partial_pips * pip_unit)))
+                tp1_dist = abs(tp1_target - entry)
+                partial_dist = min(tp1_dist, max(partial_pips * pip_unit, 1.2 * risk_dist))
                 if partial_enabled and favorable_move >= partial_dist and not trade.get('partial_taken', False):
                     trade['partial_taken'] = True
                     locked_r = partial_ratio * (abs(price - entry) / risk_dist)
@@ -346,12 +365,11 @@ class TradeManager:
                     trade['sl'] = new_sl
                     trade['is_be'] = True
                     sl = new_sl
-                    print(f"[{symbol}] [PARTIAL TP1 SECURED (+{partial_pips:.1f} pips)] Closed {partial_ratio*100:.0f}% lot for {locked_r:+.2f}R! SL moved to BE ({new_sl})")
+                    print(f"[{symbol}] [PARTIAL TP1 SECURED (+{partial_dist/pip_unit:.1f} pips)] Closed {partial_ratio*100:.0f}% lot for {locked_r:+.2f}R! SL moved to BE ({new_sl})")
 
-                # 2. Standard Auto Break-Even (BE) Trigger (if not already moved by TP1): Move SL to entry at +50 pips
-                be_trigger_dist = be_cfg_pips * pip_unit
-                trigger_dist = min(be_trigger_dist, 0.5 * tp_dist)
-                if favorable_move >= trigger_dist and not trade.get('is_be', False):
+                # 2. Standard Auto Break-Even (BE) Trigger: Move SL to entry after reaching be_cfg_pips (e.g. 50 pips) or 0.8R
+                be_trigger_dist = min(be_cfg_pips * pip_unit, 1.0 * risk_dist)
+                if favorable_move >= be_trigger_dist and not trade.get('is_be', False):
                     new_sl = round(entry + (0.5 * pip_unit) if is_buy else entry - (0.5 * pip_unit), 2 if is_xau else 5)
                     trade['sl_price'] = new_sl
                     trade['sl'] = new_sl

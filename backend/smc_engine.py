@@ -1069,3 +1069,84 @@ class SMCEngine:
                         break
         return rbs_sbr
 
+    def detect_crt(self, lookback: int = 30) -> List[Dict]:
+        """
+        Detect Candle Range Theory (CRT) Liquidity Sweeps and Range Reversals.
+        Bullish CRT:
+            - Candle N sweeps below Candle N-1 Low (curr['low'] < prev['low'])
+            - Candle N closes back inside Candle N-1 Range (curr['close'] > prev['low'])
+            - Invalidation / SL: curr['low']
+            - Target: prev['high']
+            - POI Range: [curr['low'], prev['low']]
+        Bearish CRT:
+            - Candle N sweeps above Candle N-1 High (curr['high'] > prev['high'])
+            - Candle N closes back inside Candle N-1 Range (curr['close'] < prev['high'])
+            - Invalidation / SL: curr['high']
+            - Target: prev['low']
+            - POI Range: [prev['high'], curr['high']]
+        """
+        crt_patterns = []
+        if len(self.data) < 3:
+            return []
+
+        start_idx = max(1, len(self.data) - lookback)
+        for i in range(start_idx, len(self.data)):
+            curr = self.data[i]
+            prev = self.data[i-1]
+
+            prev_range = prev['high'] - prev['low']
+            if prev_range <= 0:
+                continue
+
+            # Bullish CRT: Sweep prev low, close inside prev range
+            if curr['low'] < prev['low'] and curr['close'] > prev['low']:
+                crt_patterns.append({
+                    'type': 'CRT_BULLISH',
+                    'direction': 'BUY',
+                    'timestamp': curr['timestamp'],
+                    'index': i,
+                    'sweep_price': curr['low'],
+                    'reference_level': prev['low'],
+                    'target_price': prev['high'],
+                    'top': prev['low'],
+                    'bottom': curr['low'],
+                    'range_high': prev['high'],
+                    'range_low': prev['low'],
+                    'level': curr['low'],
+                    'mitigated': False
+                })
+
+            # Bearish CRT: Sweep prev high, close inside prev range
+            elif curr['high'] > prev['high'] and curr['close'] < prev['high']:
+                crt_patterns.append({
+                    'type': 'CRT_BEARISH',
+                    'direction': 'SELL',
+                    'timestamp': curr['timestamp'],
+                    'index': i,
+                    'sweep_price': curr['high'],
+                    'reference_level': prev['high'],
+                    'target_price': prev['low'],
+                    'top': curr['high'],
+                    'bottom': prev['high'],
+                    'range_high': prev['high'],
+                    'range_low': prev['low'],
+                    'level': curr['high'],
+                    'mitigated': False
+                })
+
+        # Invalidation check: Has price subsequently violated the sweep extreme?
+        for pattern in crt_patterns:
+            idx = pattern['index']
+            for j in range(idx + 1, len(self.data)):
+                if pattern['type'] == 'CRT_BULLISH':
+                    if self.data[j]['close'] < pattern['bottom']:
+                        pattern['mitigated'] = True
+                        break
+                elif pattern['type'] == 'CRT_BEARISH':
+                    if self.data[j]['close'] > pattern['top']:
+                        pattern['mitigated'] = True
+                        break
+
+        return [p for p in crt_patterns if not p['mitigated']]
+
+

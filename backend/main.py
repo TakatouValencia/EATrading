@@ -19,6 +19,7 @@ from database import Database
 from trade_manager import TradeManager
 import settings_manager
 from discord_notifier import send_discord_alert, send_discord_trade_update, send_circuit_breaker_alert
+from market_schedule import is_forex_market_open
 
 app = FastAPI(title="Novaire EA SMC Engine")
 
@@ -94,6 +95,17 @@ async def run_smc_analysis(tick: dict):
         else:
             tick_time_obj = tick_time if hasattr(tick_time, 'minute') else datetime.now()
         
+        # Check if Forex/Gold Market is Open (Blocks execution on Saturdays/weekends)
+        is_open, open_reason = is_forex_market_open(tick_time_obj, symbol)
+        if not is_open:
+            now_ts = datetime.now().timestamp()
+            if not hasattr(app.state, 'last_closed_log'):
+                app.state.last_closed_log = 0
+            if now_ts - app.state.last_closed_log >= 600:
+                app.state.last_closed_log = now_ts
+                print(f"[{symbol}] [MARKET CLOSED - WEEKEND PAUSE] {open_reason}. Tick ignored.")
+            return
+
         if not hasattr(app.state, 'market_data_lock'):
             app.state.market_data_lock = asyncio.Lock()
             
@@ -244,8 +256,11 @@ async def run_smc_analysis(tick: dict):
             combined_obs = m15_obs + m5_obs
             combined_fvgs = m15_fvgs + m5_fvgs
             combined_breakers = m15_breakers + m5_breakers
-            combined_qms = engine_m15.detect_quasimodo() + engine_m5.detect_quasimodo()
-            combined_rbs = engine_m15.detect_rbs_sbr() + engine_m5.detect_rbs_sbr()
+            combined_qms = engine_m15.detect_quasimodo() + (engine_m5.detect_quasimodo() if engine_m5 else [])
+            combined_rbs = engine_m15.detect_rbs_sbr() + (engine_m5.detect_rbs_sbr() if engine_m5 else [])
+            combined_crts = engine_m15.detect_crt() + (engine_m5.detect_crt() if engine_m5 else [])
+            adx_m15 = engine_m15.calculate_adx(14)
+            adx_h1 = engine_h1.calculate_adx(14) if engine_h1 else 25.0
 
             # DXY Trend for Intermarket Correlation (using cached/async data)
             dxy_trend = None
@@ -280,9 +295,9 @@ async def run_smc_analysis(tick: dict):
                 cb_status = "LOCKED" if not allowed else f"OK ({trade_manager.consecutive_losses}/3 SLs, {trade_manager.daily_pnl:.1f}R)"
                 print(f"[{datetime.now().strftime('%H:%M:%S')}] [SCANNING] {symbol}: {tick_price:.2f} | H1: {h1_trend or 'N/A'} | M15: {m15_trend or 'N/A'} | M5: {m5_trend or 'N/A'} | Active: {active_c} | Circuit Breaker: {cb_status}")
 
-            # Check for Signals ONLY if we don't already have an ACTIVE trade for this symbol
+            # Check for Signals ONLY if we don't already have a PENDING or ACTIVE trade for this symbol
             signal = None
-            if not trade_manager.has_running_trade(symbol):
+            if not trade_manager.has_active_trade(symbol):
                 if allowed:
                     atr = engine_m1.calculate_atr(period=14)
                     reversal_patterns = engine_m1.detect_reversal_patterns()
@@ -314,7 +329,10 @@ async def run_smc_analysis(tick: dict):
                         qm_patterns=combined_qms,
                         rbs_sbr=combined_rbs,
                         h1_obs=h1_obs,
-                        h1_pd_zones=h1_pd
+                        h1_pd_zones=h1_pd,
+                        crt_patterns=combined_crts,
+                        adx_m15=adx_m15,
+                        adx_h1=adx_h1
                     )
                     # Process and register new signal atomically
                     if signal and signal.get("status") not in ["SKIPPED", "REJECTED"]:
@@ -483,14 +501,15 @@ async def get_stats():
 class SettingsModel(BaseModel):
     account_balance: float
     risk_percentage: float
-    min_tp_pips: Optional[float] = 150.0
-    max_tp_pips: Optional[float] = 200.0
-    max_sl_pips: Optional[float] = 70.0
-    min_sl_pips: Optional[float] = 25.0
-    be_trigger_pips: Optional[float] = 50.0
+    min_tp_pips: Optional[float] = 120.0
+    max_tp_pips: Optional[float] = 250.0
+    max_sl_pips: Optional[float] = 90.0
+    min_sl_pips: Optional[float] = 50.0
+    be_trigger_pips: Optional[float] = 70.0
     partial_tp_enabled: Optional[bool] = True
-    partial_tp_pips: Optional[float] = 70.0
+    partial_tp_pips: Optional[float] = 100.0
     partial_tp_ratio: Optional[float] = 0.5
+    max_daily_trades: Optional[int] = 2
 
 @app.get("/api/settings")
 async def get_settings():
@@ -508,7 +527,8 @@ async def update_settings(settings: SettingsModel):
         "be_trigger_pips": settings.be_trigger_pips,
         "partial_tp_enabled": settings.partial_tp_enabled,
         "partial_tp_pips": settings.partial_tp_pips,
-        "partial_tp_ratio": settings.partial_tp_ratio
+        "partial_tp_ratio": settings.partial_tp_ratio,
+        "max_daily_trades": settings.max_daily_trades
     }
     settings_manager.save_settings(new_settings)
     return {"status": "success", "settings": new_settings}

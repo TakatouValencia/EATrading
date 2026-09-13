@@ -6,14 +6,15 @@ SETTINGS_FILE = os.path.join(os.path.dirname(__file__), 'settings.json')
 DEFAULT_SETTINGS = {
     "account_balance": 10000.0,
     "risk_percentage": 1.0,
-    "min_tp_pips": 150.0,
-    "max_tp_pips": 200.0,
-    "max_sl_pips": 70.0,
-    "min_sl_pips": 25.0,
-    "be_trigger_pips": 50.0,
+    "min_tp_pips": 120.0,
+    "max_tp_pips": 250.0,
+    "max_sl_pips": 90.0,
+    "min_sl_pips": 50.0,
+    "be_trigger_pips": 70.0,
     "partial_tp_enabled": True,
-    "partial_tp_pips": 70.0,
-    "partial_tp_ratio": 0.5
+    "partial_tp_pips": 100.0,
+    "partial_tp_ratio": 0.5,
+    "max_daily_trades": 2
 }
 
 def load_settings() -> dict:

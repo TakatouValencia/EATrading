@@ -43,45 +43,48 @@ async def send_discord_alert(signal: dict):
                 del _recent_alerts[k]
         
     color = 0x10B981 if "BUY" in signal.get('type', '') else 0xF43F5E 
+    is_xau = "XAU" in symbol
+    pip_unit = 0.10 if is_xau else 0.0001
+    entry_f = float(signal.get('entry', 0.0))
+    sl_f = float(signal.get('sl', 0.0))
+    tp_f = float(signal.get('tp', 0.0))
+    tp1_f = float(signal.get('tp1', tp_f))
+    tp2_f = float(signal.get('tp2', tp_f))
+    
+    sl_pips = abs(entry_f - sl_f) / pip_unit if pip_unit > 0 else 0
+    tp1_pips = abs(tp1_f - entry_f) / pip_unit if pip_unit > 0 else 0
+    tp2_pips = abs(tp2_f - entry_f) / pip_unit if pip_unit > 0 else 0
+    rr_tp1 = tp1_pips / sl_pips if sl_pips > 0 else 2.0
+    rr_tp2 = tp2_pips / sl_pips if sl_pips > 0 else 3.5
     
     embed = {
-        "title": f"🚨 {signal.get('type')} Signal: {signal.get('symbol')} 🚨",
-        "description": "SMC Engine detected a new valid trading setup.",
+        "title": f"💎 [PREMIUM A+] {signal.get('type')} Signal: {signal.get('symbol')} 💎",
+        "description": "Institutional SMC Engine terdeteksi setup berprobabilitas tinggi untuk Daily Intraday Trading.",
         "color": color,
         "fields": [
-            {"name": "Entry Price", "value": f"**{signal.get('entry')}**", "inline": True},
-            {"name": "TP1 (Amankan 50%)", "value": f"**{signal.get('tp1', signal.get('tp'))}** (+70p)", "inline": True},
-            {"name": "TP2 (Swing Target)", "value": f"**{signal.get('tp2', signal.get('tp'))}**", "inline": True},
-            {"name": "Stop Loss (SL)", "value": f"**{signal.get('sl')}**", "inline": True},
+            {"name": "🎯 Entry Price", "value": f"**{entry_f:.2f}**", "inline": True},
+            {"name": "🛑 Stop Loss (SL)", "value": f"**{sl_f:.2f}** (-{sl_pips:.0f}p)", "inline": True},
+            {"name": "⚖️ Risk : Reward", "value": f"**1 : {rr_tp2:.1f}** (TP2)", "inline": True},
+            {"name": "🔒 TP1 (Amankan 50% & BE)", "value": f"**{tp1_f:.2f}** (+{tp1_pips:.0f}p | 1:{rr_tp1:.1f}R)", "inline": True},
+            {"name": "🚀 TP2 (Swing Runner)", "value": f"**{tp2_f:.2f}** (+{tp2_pips:.0f}p | 1:{rr_tp2:.1f}R)", "inline": True},
+            {"name": "📊 Lot Rekomendasi", "value": f"**{signal.get('lot_size', 0.01)} Lot** (Risiko 1%)", "inline": True},
         ],
         "footer": {
-            "text": "Novaire EA SMC Engine"
+            "text": "Novaire EA • Premium Daily Trading Engine"
         },
         "timestamp": datetime.utcnow().isoformat()
     }
     
     if signal.get('reasons'):
-        # Take max 3 reasons, join in a single line to keep it clean
-        top_reasons = signal['reasons'][:3]
-        reasons_text = ", ".join(top_reasons)
-        if len(signal['reasons']) > 3:
-            reasons_text += "..."
-        embed["fields"].append({"name": "Confluence", "value": reasons_text, "inline": False})
+        # Filter UI badge out of confluence list if needed, or format nicely
+        clean_reasons = [r for r in signal['reasons'] if not r.startswith("[UI_BADGE")]
+        reasons_text = "\n".join([f"• {r}" for r in clean_reasons[:4]])
+        embed["fields"].append({"name": "🧠 SMC Confluence & Thesis", "value": reasons_text, "inline": False})
         
-    # Add Smart Scaling instructions so users execute it correctly
-    entry = float(signal.get('entry', 0))
-    sl = float(signal.get('sl', 0))
-    tp = float(signal.get('tp', 0))
-    tp1 = float(signal.get('tp1', tp))
-    is_xau = "XAU" in symbol
-    pip_unit = 0.10 if is_xau else 0.0001
-    sl_pips = abs(entry - sl) / pip_unit
-    tp_pips = abs(tp - entry) / pip_unit
-    be_target = entry + (5.0 if is_xau else 0.0050) if "BUY" in signal.get('type', '') else entry - (5.0 if is_xau else 0.0050)
-    
+    be_target = entry_f + (0.5 * pip_unit if "BUY" in signal.get('type', '') else -0.5 * pip_unit)
     embed["fields"].append({
-        "name": "⚙️ Execution & Risk Guide (Partial TP Engine)", 
-        "value": f"• **TP1 (+70 Pips)**: **{tp1:.2f}** -> Amankan 50% lot dan otomatis geser SL ke BE!\n• **TP2 (Runner)**: **{tp_pips:.0f} Pips** ({tp:.2f}) -> Biarkan 50% lot lari tanpa risiko.\n• **Stop Loss**: **{sl_pips:.0f} Pips** ({sl:.2f}, Maks 70 Pips)\n• **Proteksi BE**: Geser SL ke **Entry ({entry:.2f})** saat harga capai **{be_target:.2f} (+50 pips)**.", 
+        "name": "📋 Intraday Trade Execution Plan", 
+        "value": f"1. Pasang order sesuai tipe sinyal (**{signal.get('signal_type', 'CONFIRMED')}**).\n2. Saat harga mencapai **TP1 ({tp1_f:.2f})**, tutup **50% lot** dan geser SL ke **Break-Even ({be_target:.2f})**.\n3. Biarkan sisa 50% lot berlari hingga **TP2 ({tp2_f:.2f})** tanpa risiko kerugian modal.", 
         "inline": False
     })
         

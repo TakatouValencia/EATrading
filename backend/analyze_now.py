@@ -52,6 +52,9 @@ async def main():
     combined_obs = m15_obs + m5_obs
     combined_fvgs = m15_fvgs + m5_fvgs
     combined_breakers = m15_breakers + m5_breakers
+    combined_qms = engine_m15.detect_quasimodo() + engine_m5.detect_quasimodo()
+    combined_rbs = engine_m15.detect_rbs_sbr() + engine_m5.detect_rbs_sbr()
+    combined_crts = engine_m15.detect_crt() + engine_m5.detect_crt()
 
     # Run SMC Engine on M1 (LTF)
     engine_m1 = SMCEngine(df_m1)
@@ -79,6 +82,7 @@ async def main():
                 
     atr = engine_m1.calculate_atr(period=14)
     reversal_patterns = engine_m1.detect_reversal_patterns()
+    adx_m15 = engine_m15.calculate_adx(14)
     
     signal = await sg.evaluate_confluence(
         symbol=symbol,
@@ -99,7 +103,11 @@ async def main():
         poc_price=poc_price,
         atr=atr,
         reversal_patterns=reversal_patterns,
-        engine_ltf=engine_m1
+        engine_ltf=engine_m1,
+        qm_patterns=combined_qms,
+        rbs_sbr=combined_rbs,
+        crt_patterns=combined_crts,
+        adx_m15=adx_m15
     )
     
     if signal:
