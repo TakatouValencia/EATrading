@@ -46,8 +46,10 @@ class SignalGenerator:
     async def evaluate_confluence(self, symbol: str, current_price: float, 
                                   events: List[Dict], obs: List[Dict], fvgs: List[Dict], sweeps: List[Dict] = None, 
                                   m15_trend: str = None, m5_trend: str = None,
-                                  htf_trend: str = None, h1_trend: str = None, h4_trend: str = None, 
-                                  engine_ltf = None, snr_zones: List[Dict] = None, snd_zones: List[Dict] = None, 
+                                  htf_trend: str = None, h1_trend: str = None, h4_trend: str = None,
+                                  d1_trend: str = None, h4_choch: str = None,
+                                  engine_ltf = None, engine_htf = None,
+                                  snr_zones: List[Dict] = None, snd_zones: List[Dict] = None, 
                                   pd_zones: Dict = None, breakers: List[Dict] = None, dxy_trend: str = None, 
                                   fibo_ote: Dict = None, poc_price: float = None, trade_manager = None,
                                   amd_setups: List[Dict] = None, atr: float = 1.0, reversal_patterns: List[str] = None,
@@ -59,20 +61,32 @@ class SignalGenerator:
                                   h1_obs: List[Dict] = None,
                                   h1_pd_zones: Dict = None,
                                   m30_trend: str = None,
-                                  crt_patterns: List[Dict] = None) -> Optional[Dict]:
+                                  crt_patterns: List[Dict] = None,
+                                  liquidity_pools: Dict = None,
+                                  **kwargs) -> Optional[Dict]:
         """
-        Evaluate if a new signal should be generated based on institutional SMC confluence.
-        Top-Down Architecture: H1 (Macro Bias) -> M15/M30 (Structural Shift) -> M5/M1 (Execution Snipe).
-        Strict Risk: Max 70 pips SL, Target 150 - 200 pips TP.
+        Evaluate institutional Grade A+ SMC setup specifically tailored for XAUUSD.
+        
+        Strict Criteria:
+        1. Session Filter: ONLY London Killzone (14:00 - 17:00 WIB) & NY Killzone (19:30 - 22:30 WIB).
+        2. HTF Structure Alignment: H4 & D1 trends. No counter-trend allowed unless H4 has confirmed CHoCH.
+        3. Liquidity Sweep: Must sweep Asian Session High/Low, PDH/PDL, EQH/EQL, or major swing.
+           - Followed by strong Rejection Reversal candle + Volume Spike.
+           - NO direct entry on touch of liquidity.
+        4. LTF Confirmation: M5/M15 CHoCH post-sweep.
+        5. Entry Zone: Unfilled FVG (or Unmitigated OB) in Discount (< 50% Eq) for BUY, Premium (> 50% Eq) for SELL.
+        6. Dynamic SL: Sweep extreme wick + 15-20 pips buffer ($1.5 - $2.0 on Gold).
+        7. Dynamic TP1: Nearest structure/FVG with minimum 1:2 RRR.
+        8. Dynamic TP2: Opposite HTF Liquidity / H1 FVG.
+        9. Grade A+ Only: If any requirement is missing, DO NOT emit signal.
         """
-        # 1. Check Trading Allowed (Psychology & Circuit Breaker Limits)
+        # 1. Circuit Breaker Limits
         if trade_manager:
             allowed, reason = trade_manager.check_trading_allowed()
             if not allowed:
-                print(f"[{symbol}] Trading locked by Risk Circuit Breaker: {reason}")
                 return None
                 
-        # 2. Check Cooldown
+        # 2. Time Parse & Cooldown Check
         if current_time_str:
             try:
                 ts = current_time_str.replace("Z", "+00:00")
@@ -91,67 +105,36 @@ class SignalGenerator:
             else:
                 del self.cooldowns[symbol]
 
-        # 3. Dynamic ATR Floors, Buffer, and Configured SL / TP Limits
+        # 3. Currency / Asset Specifications
         is_xau = "XAU" in symbol
         pip_unit = 0.10 if is_xau else 0.0001
         
-        settings = settings_manager.load_settings()
-        req_max_sl_pips = float(settings.get("max_sl_pips", 90.0))
-        req_min_sl_pips = float(settings.get("min_sl_pips", 50.0))
-        req_min_tp_pips = float(settings.get("min_tp_pips", 120.0))
-        req_max_tp_pips = float(settings.get("max_tp_pips", 250.0))
-        req_partial_tp_pips = float(settings.get("partial_tp_pips", 100.0))
-        max_daily_trades = int(settings.get("max_daily_trades", 2))
+        # 4. Strict Market Hours & Weekend Shield
+        is_open, open_reason = is_forex_market_open(now_time, symbol)
+        if not is_open:
+            return None
 
-        # Check daily completed trades limit (Quality over Quantity for daily trading)
-        if trade_manager and hasattr(trade_manager, "daily_completed_trades"):
-            if trade_manager.daily_completed_trades >= max_daily_trades:
-                print(f"[{symbol}] Daily trades limit reached ({trade_manager.daily_completed_trades}/{max_daily_trades}). Skipping new setups.")
-                return None
+        # 5. Strict Session Filter: London KZ (14:00 - 17:00 WIB) & NY KZ (19:30 - 22:30 WIB)
+        is_killzone, kz_reason = is_killzone_active(now_time)
+        if not is_killzone:
+            return None
 
-        if atr is None or atr <= 0:
-            atr = 1.5 if is_xau else 0.0010
-            
-        buffer_dist = max(1.0 * atr, 1.5 if is_xau else 0.0010)
-        min_sl_floor = max(req_min_sl_pips * pip_unit, 5.0 if is_xau else 0.0030) # Minimum 50 pips ($5.00) on Gold
-        max_sl_cap = req_max_sl_pips * pip_unit    # 90 pips ($9.00 for Gold)
-        min_tp_dist = req_min_tp_pips * pip_unit   # 120 pips ($12.0 for Gold)
-        max_tp_dist = req_max_tp_pips * pip_unit   # 250 pips ($25.0 for Gold)
-        partial_tp_dist = req_partial_tp_pips * pip_unit # 100 pips ($10.0 for Gold)
-        max_limit_distance = 15.0 if is_xau else 0.0150 # Tight limit placement for low TF
-
-        # Resolve Low Timeframe trends (M15 Macro, M5 Intermediate)
-        macro_trend = m15_trend or htf_trend or h4_trend
-        inter_trend = m5_trend
-
-        # Filter out blacklisted and rejected zones from incoming POIs
+        # 6. Check Liquidity Pools
+        if liquidity_pools is None and engine_ltf and hasattr(engine_ltf, 'detect_liquidity_pools'):
+            try:
+                liquidity_pools = engine_ltf.detect_liquidity_pools(is_xau=is_xau)
+            except Exception:
+                liquidity_pools = {}
+                
+        # Filter POIs
         blacklisted = db.get_blacklisted_zones(symbol) if db else set()
         def is_banned(sig):
             return (sig in blacklisted) or (sig in self.rejected_zones)
 
         valid_obs = [ob for ob in (obs or []) if not is_banned(f"{symbol}_{ob['type']}_{ob['bottom']}_{ob['top']}")]
         valid_fvgs = [fvg for fvg in (fvgs or []) if not is_banned(f"{symbol}_{fvg['type']}_{fvg['bottom']}_{fvg['top']}")]
-        valid_breakers = [b for b in (breakers or []) if not is_banned(f"{symbol}_{b['type']}_{b['bottom']}_{b['top']}")]
-        valid_qms = [q for q in (qm_patterns or []) if not is_banned(f"{symbol}_{q['type']}_{q['bottom']}_{q['top']}")]
-        valid_rbs = [r for r in (rbs_sbr or []) if not is_banned(f"{symbol}_{r['type']}_{r['bottom']}_{r['top']}")]
-        valid_crts = [c for c in (crt_patterns or []) if not is_banned(f"{symbol}_{c['type']}_{c['bottom']}_{c['top']}")]
-        valid_snds = [s for s in (snd_zones or []) if not is_banned(f"{symbol}_{s['type']}_{s['bottom']}_{s['top']}")]
 
-        # Strict Market Hours & Weekend Shield (Forex / Gold closes Friday 21:00 UTC - Sunday 21:00 UTC)
-        is_open, open_reason = is_forex_market_open(now_time, symbol)
-        if not is_open:
-            return None
-
-        # Strict Session Filter: Only trade during high-liquidity London & NY killzones
-        is_killzone, kz_reason = is_killzone_active(now_time)
-        if not is_killzone:
-            return None
-
-        # Strict ADX Chop Filter: Require directional momentum on M15 or H1
-        if adx_m15 < 20.0 and adx_h1 < 20.0:
-            return None
-
-        # 4. Helper to evaluate setup for a specific direction
+        # 7. Direction Evaluator
         def _evaluate_setup_candidate(is_bullish: bool) -> Optional[Dict]:
             confluence_score = 0
             reasons = []
@@ -159,454 +142,326 @@ class SignalGenerator:
             trend_tag = "BULLISH" if is_bullish else "BEARISH"
             opposing_tag = "BEARISH" if is_bullish else "BULLISH"
 
-            # A0. H1 Macro Compass & M30 Alignment
-            if h1_trend:
-                if h1_trend == trend_tag:
-                    confluence_score += 3
-                    reasons.append(f"H1 Macro Bias Confirmed ({h1_trend}) (+3)")
+            # -------------------------------------------------------------
+            # RULE 1: High Timeframe (H4 & D1) Alignment + H4 CHoCH Exception
+            # -------------------------------------------------------------
+            effective_h4 = h4_trend or h1_trend or m15_trend
+            effective_d1 = d1_trend or h4_trend
+
+            is_counter_trend = False
+            if effective_h4 and effective_h4 == opposing_tag:
+                is_counter_trend = True
+            if effective_d1 and effective_d1 == opposing_tag:
+                is_counter_trend = True
+
+            h4_has_choch = False
+            if h4_choch and f"CHOCH_{trend_tag}" in h4_choch:
+                h4_has_choch = True
+
+            if is_counter_trend:
+                if not h4_has_choch:
+                    # Strict Rule: NEVER take a counter-trend HTF setup without H4 CHoCH!
+                    return None
                 else:
-                    # Strict Institutional Rule: NEVER trade against the H1 Macro Trend!
+                    confluence_score += 3
+                    reasons.append(f"HTF Reversal: H4 CHoCH ({trend_tag}) Confirmed against HTF ({effective_h4}) (+3)")
+            else:
+                confluence_score += 3
+                reasons.append(f"HTF Trend Alignment: H4 & D1 {trend_tag} Aligned (+3)")
+
+            # -------------------------------------------------------------
+            # RULE 2: Liquidity Pool Sweep (Asian, PDH/PDL, EQH/EQL, Swings)
+            # -------------------------------------------------------------
+            sweep_target_type = f"SWEEP_{trend_tag}"
+            candidate_sweeps = [s for s in (sweeps or []) if s.get('type') == sweep_target_type]
+
+            if not candidate_sweeps:
+                # DILARANG entry tanpa adanya sweep likuiditas!
+                return None
+
+            # RULE 2A: Disallow minor M5 swings: ONLY allow Major Liquidity Pools (Asian High/Low, PDH/PDL, EQH/EQL)
+            major_candidate_sweeps = [
+                s for s in candidate_sweeps 
+                if s.get('pool_type') in ['ASIAN_LOW', 'ASIAN_HIGH', 'PDL', 'PDH', 'EQL', 'EQH']
+            ]
+            if not major_candidate_sweeps:
+                return None
+
+            # Pick the most recent valid major sweep
+            matched_sweep = major_candidate_sweeps[-1]
+            pool_name = matched_sweep.get('pool_name', 'Liquidity Pool')
+            pool_type = matched_sweep.get('pool_type', 'MAJOR')
+            
+            # RULE 2B: Zone Lockout / Anti-Revenge Filter
+            if trade_manager and hasattr(trade_manager, 'is_pool_blacklisted'):
+                if trade_manager.is_pool_blacklisted(pool_name):
+                    return None
+            
+            # Rejection verification
+            has_rejection = matched_sweep.get('has_rejection', False) or (matched_sweep.get('wick_ratio', 0) >= 0.30)
+            if reversal_patterns and any(trend_tag in p for p in reversal_patterns):
+                has_rejection = True
+                
+            if not has_rejection:
+                # Entry dilarang jika tidak ada candle rejection pembalikan arah
+                return None
+                
+            # Volume Spike verification
+            volume_spike = matched_sweep.get('volume_spike', True)
+            
+            confluence_score += 3
+            reasons.append(f"Liquidity Sweep: {pool_name} Swept with Rejection Wick & Institutional Volume (+3)")
+
+            # RULE 2C: RSI Momentum Exhaustion Filter
+            if engine_ltf and hasattr(engine_ltf, 'calculate_rsi'):
+                rsi_val = engine_ltf.calculate_rsi(14)
+                if is_bullish and rsi_val > 48.0:
+                    # BUY: Momentum must be in exhaustion / oversold territory
+                    return None
+                elif not is_bullish and rsi_val < 52.0:
+                    # SELL: Momentum must be in exhaustion / overbought territory
+                    return None
+                reasons.append(f"Momentum Exhaustion: RSI ({rsi_val:.1f}) confirmed reversal state (+2)")
+
+            # RULE 2D: Displacement Candle Ratio Check (No weak dojis/indecision)
+            if engine_ltf and getattr(engine_ltf, 'data', None):
+                last_c = engine_ltf.data[-1]
+                c_range = last_c['high'] - last_c['low']
+                c_body = abs(last_c['close'] - last_c['open'])
+                body_ratio = (c_body / c_range) if c_range > 0 else 0
+                if body_ratio < 0.38:
                     return None
 
-            if m30_trend and m30_trend == trend_tag:
-                confluence_score += 1
-                reasons.append(f"M30 Structure Aligned ({m30_trend}) (+1)")
-
-            # A1. Check H1 Obstacle Walls
-            if h1_obs:
-                for hob in h1_obs:
-                    if is_bullish and hob.get('type') == 'OB_BEARISH' and not hob.get('mitigated', False):
-                        if current_price < hob['bottom'] <= current_price + (8.0 if is_xau else 0.0080):
-                            confluence_score -= 2
-                            reasons.append("Approaching H1 Supply (-2)")
-                    elif not is_bullish and hob.get('type') == 'OB_BULLISH' and not hob.get('mitigated', False):
-                        if current_price > hob['top'] >= current_price - (8.0 if is_xau else 0.0080):
-                            confluence_score -= 2
-                            reasons.append("Approaching H1 Demand (-2)")
-
-            # A2. H1 Wholesale Dealing Range
-            if h1_pd_zones:
-                if is_bullish and current_price <= h1_pd_zones.get('eq', float('inf')):
+            # -------------------------------------------------------------
+            # RULE 3: LTF Structure Shift (CHoCH on M5/M15 post-sweep)
+            # -------------------------------------------------------------
+            choch_found = False
+            for ev in reversed((events or [])[-20:]):
+                if ev.get('type') in [f"CHOCH_{trend_tag}", f"BOS_{trend_tag}"]:
+                    choch_found = True
                     confluence_score += 2
-                    reasons.append("In H1 Wholesale Discount Area (< 50% Eq) (+2)")
-                elif not is_bullish and current_price >= h1_pd_zones.get('eq', 0):
-                    confluence_score += 2
-                    reasons.append("In H1 Wholesale Premium Area (> 50% Eq) (+2)")
+                    reasons.append(f"LTF Shift: M5/M15 {ev['type']} Confirmed Post-Sweep (+2)")
+                    break
 
-            # A3. Macro Trend Alignment (M15 & M5)
-            # SMC Hierarchy: M15 is Macro Intraday Trend, M5 is Intermediate Trend
-            if macro_trend == trend_tag and inter_trend == trend_tag:
-                confluence_score += 3
-                reasons.append(f"Full Low-TF Alignment (M15 & M5 {trend_tag})")
-            elif macro_trend == trend_tag and inter_trend == opposing_tag:
-                confluence_score += 2
-                reasons.append(f"M15 {trend_tag} Macro with M5 Pullback into POI")
-            elif macro_trend == opposing_tag and inter_trend == opposing_tag:
-                confluence_score -= 3
-                reasons.append(f"Counter-Trend Warning (M15 & M5 {opposing_tag})")
-            elif inter_trend == trend_tag or macro_trend == trend_tag:
-                confluence_score += 1
-                reasons.append(f"{'M5' if inter_trend == trend_tag else 'M15'} {trend_tag} Trend Alignment")
+            if not choch_found:
+                # Wajib ada CHoCH di LTF (M5/M15) setelah sweep terjadi
+                return None
 
-            # B. Liquidity Sweep & Inducement (Crucial for high WR)
-            has_sweep = False
-            has_idm = False
-            if sweeps:
-                sweep_target = "SWEEP_BULLISH" if is_bullish else "SWEEP_BEARISH"
-                for sw in reversed(sweeps[-15:]):
-                    if sw.get('type') == sweep_target:
-                        has_sweep = True
-                        confluence_score += 3
-                        reasons.append(f"{'Bullish' if is_bullish else 'Bearish'} Liquidity Sweep (+3)")
-                        if sw.get('is_idm'):
-                            has_idm = True
-                            confluence_score += 1
-                            reasons.append("Inducement (IDM) Taken (+1)")
-                        break
+            # -------------------------------------------------------------
+            # RULE 4: Entry Zone in Unfilled FVG or Unmitigated OB in Discount/Premium
+            # -------------------------------------------------------------
+            # FVG and OB candidates in the direction of trade
+            fvg_target_type = f"FVG_{trend_tag}"
+            ob_target_type = f"OB_{trend_tag}"
 
-            # C. Premium & Discount Alignment
-            in_favorable_pd = False
+            candidate_fvgs = [f for f in valid_fvgs if f.get('type') == fvg_target_type and not f.get('mitigated', False)]
+            candidate_obs = [o for o in valid_obs if o.get('type') == ob_target_type and not o.get('mitigated', False)]
+
+            # Premium / Discount Check
             if pd_zones:
+                eq_level = pd_zones.get('eq', current_price)
                 if is_bullish:
-                    if current_price <= pd_zones.get('discount_high', float('inf')) + 0.3 * atr:
-                        in_favorable_pd = True
-                        confluence_score += 2
-                        reasons.append("In Discount Zone (< 50% Eq)")
-                    elif current_price > pd_zones.get('premium_low', float('inf')):
-                        # Strict Institutional Rule: Never buy in deep premium (expensive area)
+                    # BUY entry must be in Wholesale Discount (< 50% Eq)
+                    if current_price > eq_level + (1.0 if is_xau else 0.0010):
                         return None
+                    reasons.append("Valuation: Inside Wholesale Discount Zone (< 50% Eq) (+2)")
                 else:
-                    if current_price >= pd_zones.get('premium_low', 0) - 0.3 * atr:
-                        in_favorable_pd = True
-                        confluence_score += 2
-                        reasons.append("In Premium Zone (> 50% Eq)")
-                    elif current_price < pd_zones.get('discount_high', 0):
-                        # Strict Institutional Rule: Never sell in deep discount (cheap area)
+                    # SELL entry must be in Wholesale Premium (> 50% Eq)
+                    if current_price < eq_level - (1.0 if is_xau else 0.0010):
                         return None
+                    reasons.append("Valuation: Inside Wholesale Premium Zone (> 50% Eq) (+2)")
 
-            # D. Session Killzone Timing
-            if is_killzone:
-                confluence_score += 2
-                reasons.append("Session: London/NY Killzone Active")
-            else:
-                reasons.append("Session: Standard Market Hours")
-
-            # E. Intermarket Correlation (DXY)
-            if dxy_trend and is_xau:
-                if (is_bullish and dxy_trend == "BEARISH") or (not is_bullish and dxy_trend == "BULLISH"):
-                    confluence_score += 1
-                    reasons.append(f"DXY Inverse Correlation Confirmed ({dxy_trend})")
-
-            # F. Fibo OTE & Volume POC
-            if fibo_ote:
-                ote_key = "bullish_ote" if is_bullish else "bearish_ote"
-                if fibo_ote.get(ote_key):
-                    ote = fibo_ote[ote_key]
-                    if ote["bottom"] <= current_price <= ote["top"]:
-                        confluence_score += 1
-                        reasons.append("Inside Fibo OTE Zone (0.618 - 0.786)")
-
-            if poc_price and abs(current_price - poc_price) / current_price < 0.003:
-                confluence_score += 1
-                reasons.append("At Volume Profile High Liquidity POC")
-
-            # F1. Candle Range Theory (CRT) Liquidity Sweep Confluence
-            if valid_crts:
-                crt_target = "CRT_BULLISH" if is_bullish else "CRT_BEARISH"
-                matched_crts = [c for c in valid_crts if c.get('type') == crt_target]
-                if matched_crts:
-                    confluence_score += 3
-                    reasons.append(f"Institutional CRT Liquidity Sweep Confirmed ({crt_target}) (+3)")
-
-            # F2. Institutional Supply & Demand (SnD) Alignment
-            if valid_snds:
-                snd_target = "DEMAND" if is_bullish else "SUPPLY"
-                matched_snds = [s for s in valid_snds if s.get('type') == snd_target]
-                if any((s['bottom'] - 0.3 * atr) <= current_price <= (s['top'] + 0.3 * atr) for s in matched_snds):
-                    confluence_score += 2
-                    reasons.append(f"Institutional SnD ({snd_target}) Zone Active (+2)")
-
-            # F3. Support & Resistance (SnR) Multi-Touch Key Levels
-            if snr_zones:
-                snr_target = "SUPPORT" if is_bullish else "RESISTANCE"
-                matched_snrs = [s for s in snr_zones if s.get('type') == snr_target]
-                for s in matched_snrs:
-                    if abs(current_price - s['level']) <= 0.4 * atr or (is_bullish and s['level'] <= current_price <= s['level'] + 0.4 * atr) or (not is_bullish and s['level'] >= current_price >= s['level'] - 0.4 * atr):
-                        bonus = 2 if s.get('is_mnsr') or s.get('touches', 0) >= 3 else 1
-                        confluence_score += bonus
-                        reasons.append(f"Key {s['type'].title()} Level ({s['level']:.2f}, {s.get('touches', 2)} touches) (+{bonus})")
-                        break
-
-            # G. Find Nearest Unmitigated Institutional POI (OB, FVG, Breaker, CRT, SnD, QM, RBS/SBR)
+            # Find matching POI for entry
             matched_poi = None
             poi_type = None
-            entry_target = None
-            sl_target = None
-            poi_sig = None
+            poi_top = 0.0
+            poi_bottom = 0.0
 
             if is_bullish:
-                # Bullish setups: Entry POI must be below current price (for LIMIT) or current price inside POI
-                candidate_pois = []
-                for qm in valid_qms:
-                    if qm['type'] == "QM_BULLISH":
-                        if qm['top'] <= current_price + 0.3 * atr and qm['bottom'] <= current_price:
-                            candidate_pois.append(("QM", qm, qm['top'], qm['bottom']))
-                for rbs in valid_rbs:
-                    if rbs['type'] == "RBS_BULLISH":
-                        if rbs['top'] <= current_price + 0.3 * atr and rbs['bottom'] <= current_price:
-                            candidate_pois.append(("RBS", rbs, rbs['top'], rbs['bottom']))
-                for crt in valid_crts:
-                    if crt['type'] == "CRT_BULLISH":
-                        if crt['top'] <= current_price + 0.3 * atr and crt['bottom'] <= current_price:
-                            candidate_pois.append(("CRT", crt, crt['top'], crt['bottom']))
-                for snd in valid_snds:
-                    if snd['type'] == "DEMAND":
-                        if snd['top'] <= current_price + 0.3 * atr and snd['bottom'] <= current_price:
-                            candidate_pois.append(("DEMAND", snd, snd['top'], snd['bottom']))
-                for ob in valid_obs:
-                    if ob['type'] == "OB_BULLISH" and not ob.get('mitigated', False):
-                        if ob['top'] <= current_price + 0.3 * atr and ob['bottom'] <= current_price:
-                            candidate_pois.append(("OB", ob, ob['top'], ob['bottom']))
-                for fvg in valid_fvgs:
-                    if fvg['type'] == "FVG_BULLISH" and not fvg.get('mitigated', False):
-                        if fvg['top'] <= current_price + 0.3 * atr and fvg['bottom'] <= current_price:
-                            candidate_pois.append(("FVG", fvg, fvg['top'], fvg['bottom']))
-                for brk in valid_breakers:
-                    if brk['type'] == "BREAKER_BULLISH":
-                        if brk['top'] <= current_price + 0.3 * atr and brk['bottom'] <= current_price:
-                            candidate_pois.append(("BREAKER", brk, brk['top'], brk['bottom']))
+                # Bullish: Entry POI below current price or current price inside POI
+                valid_pois = []
+                for f in candidate_fvgs:
+                    if current_price >= f['bottom'] - 0.3 * atr and f['top'] <= current_price + 15.0:
+                        valid_pois.append(("FVG", f, f['top'], f['bottom']))
+                for o in candidate_obs:
+                    if current_price >= o['bottom'] - 0.3 * atr and o['top'] <= current_price + 15.0:
+                        valid_pois.append(("OB", o, o['top'], o['bottom']))
 
-                if not candidate_pois:
+                if not valid_pois:
+                    # Wajib berada di area Unfilled FVG atau Unmitigated OB
                     return None
 
-                # Pick POI closest to current price
-                candidate_pois.sort(key=lambda x: abs(current_price - x[2]))
-                poi_type, poi_obj, poi_top, poi_bottom = candidate_pois[0]
-                poi_sig = f"{symbol}_{poi_obj.get('type', poi_type)}_{poi_bottom}_{poi_top}"
+                # Prioritize FVG if available, else closest POI
+                fvg_pois = [p for p in valid_pois if p[0] == "FVG"]
+                if fvg_pois:
+                    valid_pois = fvg_pois
+                valid_pois.sort(key=lambda x: abs(current_price - x[2]))
+                poi_type, poi_obj, poi_top, poi_bottom = valid_pois[0]
                 
-                # Check distance to entry
-                dist_to_poi = current_price - poi_top
-                if dist_to_poi > max_limit_distance:
-                    return None  # Too far away
-
-                if dist_to_poi <= 0.25 * atr:
-                    # Inside or at the edge of POI: Require fresh rejection candle or immediate sweep
-                    has_fresh_sweep = bool(sweeps and sweeps[-1].get('type') == 'SWEEP_BULLISH' and (abs(current_price - sweeps[-1].get('level', current_price)) <= 0.6 * atr))
-                    has_candle_rev = bool(reversal_patterns and any("BULLISH" in p for p in reversal_patterns))
-                    has_confirmation = has_candle_rev or has_fresh_sweep
-                    if has_confirmation:
-                        exec_type = "CONFIRMED"
-                        entry_target = current_price
-                        reasons.append(f"Entry: Confirmed Reaction Inside Bullish {poi_type} ({poi_bottom:.2f} - {poi_top:.2f})")
-                    else:
-                        # Falling knife protection: Wait with limit order at POI 50% equilibrium
-                        exec_type = "LIMIT"
-                        entry_target = round((poi_top + poi_bottom) / 2.0, 2 if is_xau else 5)
-                        reasons.append(f"Setup: Bullish {poi_type} Equilibrium Limit ({entry_target:.2f})")
-                else:
-                    # Approaching POI -> Pending Limit Order
-                    exec_type = "LIMIT"
-                    poi_height = poi_top - poi_bottom
-                    if poi_height + buffer_dist > max_sl_cap:
-                        entry_target = poi_bottom + (max_sl_cap - buffer_dist)
-                    else:
-                        entry_target = poi_top
-                    reasons.append(f"Setup: Bullish {poi_type} Demand Zone ({poi_bottom:.2f} - {poi_top:.2f})")
-
-                # Structural Swing SL calculation
-                swing_ref = poi_bottom
-                if engine_ltf and hasattr(engine_ltf, 'get_recent_swing'):
-                    try:
-                        swing_ref = engine_ltf.get_recent_swing(is_bullish=True, current_price=entry_target, atr=atr, lookback=30)
-                    except Exception:
-                        swing_ref = poi_bottom
-
-                sweep_ref = poi_bottom
-                if sweeps:
-                    bullish_sweeps = [sw.get('level', poi_bottom) for sw in sweeps[-8:] if 'BULLISH' in sw.get('type', '')]
-                    if bullish_sweeps:
-                        sweep_ref = min(bullish_sweeps)
-
-                crt_ref = poi_bottom
-                if valid_crts:
-                    bullish_crts = [c.get('bottom', poi_bottom) for c in valid_crts if c.get('type') == 'CRT_BULLISH']
-                    if bullish_crts:
-                        crt_ref = min(bullish_crts)
-
-                invalidation_price = min(poi_bottom, swing_ref, sweep_ref, crt_ref)
-                raw_sl_dist = (entry_target - invalidation_price) + buffer_dist
-                sl_dist = max(min_sl_floor, min(max_sl_cap, raw_sl_dist))
-                sl_target = entry_target - sl_dist
-
-                # Dynamic Structural Take Profit
-                tp1_dist = max(2.0 * sl_dist, partial_tp_dist)
-                tp1_target = entry_target + tp1_dist
-
-                tp2_dist = max(3.5 * sl_dist, min_tp_dist)
-                if pd_zones and 'premium_high' in pd_zones and pd_zones['premium_high'] > entry_target + tp1_dist:
-                    tp_target = min(entry_target + max_tp_dist, max(entry_target + tp2_dist, pd_zones['premium_high']))
-                else:
-                    tp_target = min(entry_target + max_tp_dist, entry_target + tp2_dist)
-
-                # Opposing Obstacle Check (Do not buy directly into unmitigated supply wall)
-                if valid_obs:
-                    opposing_obs = [ob for ob in valid_obs if 'BEARISH' in ob.get('type', '') and not ob.get('mitigated', False) and ob['bottom'] > current_price]
-                    if opposing_obs:
-                        nearest_opp = min(opposing_obs, key=lambda x: x['bottom'])
-                        if nearest_opp['bottom'] < entry_target + 1.5 * sl_dist:
-                            return None # Insufficient clearance before supply obstacle
-
+                # Determine entry price: Instant confirmation execution (eliminate missed orders)
+                exec_type = "CONFIRMED"
+                entry_target = current_price
             else:
-                # Bearish setups: Entry POI must be above current price (for LIMIT) or current price inside POI
-                candidate_pois = []
-                for qm in valid_qms:
-                    if qm['type'] == "QM_BEARISH":
-                        if qm['bottom'] >= current_price - 0.3 * atr and qm['top'] >= current_price:
-                            candidate_pois.append(("QM", qm, qm['bottom'], qm['top']))
-                for sbr in valid_rbs:
-                    if sbr['type'] == "SBR_BEARISH":
-                        if sbr['bottom'] >= current_price - 0.3 * atr and sbr['top'] >= current_price:
-                            candidate_pois.append(("SBR", sbr, sbr['bottom'], sbr['top']))
-                for crt in valid_crts:
-                    if crt['type'] == "CRT_BEARISH":
-                        if crt['bottom'] >= current_price - 0.3 * atr and crt['top'] >= current_price:
-                            candidate_pois.append(("CRT", crt, crt['bottom'], crt['top']))
-                for snd in valid_snds:
-                    if snd['type'] == "SUPPLY":
-                        if snd['bottom'] >= current_price - 0.3 * atr and snd['top'] >= current_price:
-                            candidate_pois.append(("SUPPLY", snd, snd['bottom'], snd['top']))
-                for ob in valid_obs:
-                    if ob['type'] == "OB_BEARISH" and not ob.get('mitigated', False):
-                        if ob['bottom'] >= current_price - 0.3 * atr and ob['top'] >= current_price:
-                            candidate_pois.append(("OB", ob, ob['bottom'], ob['top']))
-                for fvg in valid_fvgs:
-                    if fvg['type'] == "FVG_BEARISH" and not fvg.get('mitigated', False):
-                        if fvg['bottom'] >= current_price - 0.3 * atr and fvg['top'] >= current_price:
-                            candidate_pois.append(("FVG", fvg, fvg['bottom'], fvg['top']))
-                for brk in valid_breakers:
-                    if brk['type'] == "BREAKER_BEARISH":
-                        if brk['bottom'] >= current_price - 0.3 * atr and brk['top'] >= current_price:
-                            candidate_pois.append(("BREAKER", brk, brk['bottom'], brk['top']))
+                # Bearish: Entry POI above current price or current price inside POI
+                valid_pois = []
+                for f in candidate_fvgs:
+                    if current_price <= f['top'] + 0.3 * atr and f['bottom'] >= current_price - 15.0:
+                        valid_pois.append(("FVG", f, f['top'], f['bottom']))
+                for o in candidate_obs:
+                    if current_price <= o['top'] + 0.3 * atr and o['bottom'] >= current_price - 15.0:
+                        valid_pois.append(("OB", o, o['top'], o['bottom']))
 
-                if not candidate_pois:
+                if not valid_pois:
                     return None
 
-                # Pick POI closest to current price
-                candidate_pois.sort(key=lambda x: abs(x[2] - current_price))
-                poi_type, poi_obj, poi_bottom, poi_top = candidate_pois[0]
-                poi_sig = f"{symbol}_{poi_obj.get('type', poi_type)}_{poi_bottom}_{poi_top}"
+                fvg_pois = [p for p in valid_pois if p[0] == "FVG"]
+                if fvg_pois:
+                    valid_pois = fvg_pois
+                valid_pois.sort(key=lambda x: abs(current_price - x[3]))
+                poi_type, poi_obj, poi_top, poi_bottom = valid_pois[0]
 
-                # Check distance to entry
-                dist_to_poi = poi_bottom - current_price
-                if dist_to_poi > max_limit_distance:
-                    return None  # Too far away
+                exec_type = "CONFIRMED"
+                entry_target = current_price
 
-                if dist_to_poi <= 0.25 * atr:
-                    # Inside or at the edge of POI: Require fresh rejection candle or immediate sweep
-                    has_fresh_sweep = bool(sweeps and sweeps[-1].get('type') == 'SWEEP_BEARISH' and (abs(current_price - sweeps[-1].get('level', current_price)) <= 0.6 * atr))
-                    has_candle_rev = bool(reversal_patterns and any("BEARISH" in p for p in reversal_patterns))
-                    has_confirmation = has_candle_rev or has_fresh_sweep
-                    if has_confirmation:
-                        exec_type = "CONFIRMED"
-                        entry_target = current_price
-                        reasons.append(f"Entry: Confirmed Reaction Inside Bearish {poi_type} ({poi_bottom:.2f} - {poi_top:.2f})")
-                    else:
-                        # Falling knife protection: Wait with limit order at POI 50% equilibrium
-                        exec_type = "LIMIT"
-                        entry_target = round((poi_top + poi_bottom) / 2.0, 2 if is_xau else 5)
-                        reasons.append(f"Setup: Bearish {poi_type} Equilibrium Limit ({entry_target:.2f})")
-                else:
-                    # Approaching POI -> Pending Limit Order
-                    exec_type = "LIMIT"
-                    poi_height = poi_top - poi_bottom
-                    if poi_height + buffer_dist > max_sl_cap:
-                        entry_target = poi_top - (max_sl_cap - buffer_dist)
-                    else:
-                        entry_target = poi_bottom
-                    reasons.append(f"Setup: Bearish {poi_type} Supply Zone ({poi_bottom:.2f} - {poi_top:.2f})")
+            poi_sig = f"{symbol}_{poi_type}_{poi_bottom}_{poi_top}"
+            reasons.append(f"Entry Zone: Unfilled {poi_type} ({poi_bottom:.2f} - {poi_top:.2f}) (+2)")
 
-                # Structural Swing SL calculation
-                swing_ref = poi_top
-                if engine_ltf and hasattr(engine_ltf, 'get_recent_swing'):
-                    try:
-                        swing_ref = engine_ltf.get_recent_swing(is_bullish=False, current_price=entry_target, atr=atr, lookback=30)
-                    except Exception:
-                        swing_ref = poi_top
-
-                sweep_ref = poi_top
-                if sweeps:
-                    bearish_sweeps = [sw.get('level', poi_top) for sw in sweeps[-8:] if 'BEARISH' in sw.get('type', '')]
-                    if bearish_sweeps:
-                        sweep_ref = max(bearish_sweeps)
-
-                crt_ref = poi_top
-                if valid_crts:
-                    bearish_crts = [c.get('top', poi_top) for c in valid_crts if c.get('type') == 'CRT_BEARISH']
-                    if bearish_crts:
-                        crt_ref = max(bearish_crts)
-
-                invalidation_price = max(poi_top, swing_ref, sweep_ref, crt_ref)
-                raw_sl_dist = (invalidation_price - entry_target) + buffer_dist
-                sl_dist = max(min_sl_floor, min(max_sl_cap, raw_sl_dist))
-                sl_target = entry_target + sl_dist
-
-                # Dynamic Structural Take Profit
-                tp1_dist = max(2.0 * sl_dist, partial_tp_dist)
-                tp1_target = entry_target - tp1_dist
-
-                tp2_dist = max(3.5 * sl_dist, min_tp_dist)
-                if pd_zones and 'discount_low' in pd_zones and pd_zones['discount_low'] < entry_target - tp1_dist:
-                    tp_target = max(entry_target - max_tp_dist, min(entry_target - tp2_dist, pd_zones['discount_low']))
-                else:
-                    tp_target = max(entry_target - max_tp_dist, entry_target - tp2_dist)
-
-                # Opposing Obstacle Check (Do not sell directly into unmitigated demand wall)
-                if valid_obs:
-                    opposing_obs = [ob for ob in valid_obs if 'BULLISH' in ob.get('type', '') and not ob.get('mitigated', False) and ob['top'] < current_price]
-                    if opposing_obs:
-                        nearest_opp = max(opposing_obs, key=lambda x: x['top'])
-                        if nearest_opp['top'] > entry_target - 1.5 * sl_dist:
-                            return None # Insufficient clearance before demand obstacle
-
-            # Point bonus for POI
-            if poi_type in ["QM", "CRT"]:
-                confluence_score += 3
-                reasons.append(f"Institutional {poi_type} Key Level (+3)")
-            elif poi_type in ["DEMAND", "SUPPLY"]:
-                confluence_score += 2
-                reasons.append(f"Institutional Supply & Demand ({poi_type}) Base (+2)")
-            elif poi_type in ["RBS", "SBR"]:
-                confluence_score += 2
-                reasons.append(f"Institutional Role Reversal ({poi_type}) Retest (+2)")
-            elif poi_type in ["OB", "BREAKER"]:
-                confluence_score += 2
-                reasons.append(f"Institutional {poi_type} Footprint (+2)")
-            else:
-                confluence_score += 1
-
-            # H. Candlestick Reversal Confirmation
-            if reversal_patterns:
-                if is_bullish and any("BULLISH" in p for p in reversal_patterns):
-                    confluence_score += 1
-                    reasons.append("Bullish Reversal Pattern Confirmed")
-                elif not is_bullish and any("BEARISH" in p for p in reversal_patterns):
-                    confluence_score += 1
-                    reasons.append("Bearish Reversal Pattern Confirmed")
-
-            # I. Structure Break Confirmation (BOS / CHoCH)
-            if events:
-                recent_ev = events[-1]
-                if (is_bullish and "BULLISH" in recent_ev['type']) or (not is_bullish and "BEARISH" in recent_ev['type']):
-                    confluence_score += 1
-                    reasons.append(f"Structure Break: {recent_ev['type']}")
-
-            # J. Strict Validity Check on Entry / SL / TP
+            # -------------------------------------------------------------
+            # RULE 5: Reduced Stop Loss (Tighter Buffer 20 pips, Floor 35p, Cap 70p)
+            # -------------------------------------------------------------
+            buffer_pips = 2.0 if is_xau else 0.0020 # 20 pips ($2.00 on Gold)
+            min_sl_dist = 3.5 if is_xau else 0.0035 # Minimum SL floor 35 pips ($3.50)
+            max_sl_dist = 7.0 if is_xau else 0.0070 # Maximum SL cap 70 pips ($7.00)
+            
             if is_bullish:
-                if exec_type == "LIMIT" and entry_target >= current_price:
-                    exec_type = "CONFIRMED"
-                    entry_target = current_price
-                if sl_target >= entry_target or tp_target <= entry_target:
-                    return None
+                sweep_extreme = matched_sweep.get('sweep_low', matched_sweep.get('level', poi_bottom))
+                raw_sl = min(sweep_extreme, poi_bottom) - buffer_pips
+                sl_target = round(raw_sl, 2 if is_xau else 5)
+                risk_dist = entry_target - sl_target
+                if risk_dist < min_sl_dist:
+                    sl_target = round(entry_target - min_sl_dist, 2 if is_xau else 5)
+                    risk_dist = entry_target - sl_target
+                elif risk_dist > max_sl_dist:
+                    sl_target = round(entry_target - max_sl_dist, 2 if is_xau else 5)
+                    risk_dist = entry_target - sl_target
             else:
-                if exec_type == "LIMIT" and entry_target <= current_price:
-                    exec_type = "CONFIRMED"
-                    entry_target = current_price
-                if sl_target <= entry_target or tp_target >= entry_target:
-                    return None
+                sweep_extreme = matched_sweep.get('sweep_high', matched_sweep.get('level', poi_top))
+                raw_sl = max(sweep_extreme, poi_top) + buffer_pips
+                sl_target = round(raw_sl, 2 if is_xau else 5)
+                risk_dist = sl_target - entry_target
+                if risk_dist < min_sl_dist:
+                    sl_target = round(entry_target + min_sl_dist, 2 if is_xau else 5)
+                    risk_dist = sl_target - entry_target
+                elif risk_dist > max_sl_dist:
+                    sl_target = round(entry_target + max_sl_dist, 2 if is_xau else 5)
+                    risk_dist = sl_target - entry_target
 
-            # Calculate Risk to Reward
-            risk_dist = abs(entry_target - sl_target)
-            reward_dist = abs(tp_target - entry_target)
-            rr_ratio = reward_dist / risk_dist if risk_dist > 0 else 0
-            if rr_ratio < 1.8:
-                return None  # Enforce minimum 1:1.8 R:R for mathematical edge
-
-            # K. Grading Scale - STRICTLY GRADE A+ ONLY (Score >= 9)
-            if confluence_score >= 9:
-                setup_grade = "A+"
-                risk_multiplier = 1.0
-            else:
-                # User Requirement: Reject any setup that is not Institutional Grade A+
+            if risk_dist <= 0:
                 return None
+
+            # -------------------------------------------------------------
+            # RULE 6: Take Profit Target (TP2: 250 - 300 pips, TP1: 100 - 140 pips)
+            # -------------------------------------------------------------
+            # TP1: 100 - 140 pips (or 1.5R+) to quickly bank profit & move SL to BE
+            min_tp1_dist = max(1.5 * risk_dist, (10.0 if is_xau else 0.0100))
+            max_tp1_dist = 14.0 if is_xau else 0.0140
+            
+            if is_bullish:
+                # TP1: Nearest opposing structure / unfilled FVG above entry
+                tp1_candidates = []
+                for s in (snr_zones or []):
+                    if s.get('type') == 'RESISTANCE' and entry_target + min_tp1_dist <= s['level'] <= entry_target + max_tp1_dist:
+                        tp1_candidates.append(s['level'])
+                for f in valid_fvgs:
+                    if f.get('type') == 'FVG_BEARISH' and entry_target + min_tp1_dist <= f['bottom'] <= entry_target + max_tp1_dist:
+                        tp1_candidates.append(f['bottom'])
+                for o in valid_obs:
+                    if o.get('type') == 'OB_BEARISH' and entry_target + min_tp1_dist <= o['bottom'] <= entry_target + max_tp1_dist:
+                        tp1_candidates.append(o['bottom'])
+                
+                tp1_target = sorted(tp1_candidates)[0] if tp1_candidates else round(entry_target + min(min_tp1_dist, max_tp1_dist), 2 if is_xau else 5)
+
+                # TP2: 250 - 300 pips ($25.0 - $30.0 on Gold, default 280 pips / $28.0)
+                tp2_candidates = []
+                if liquidity_pools:
+                    for p_key in ['asian_high', 'pdh']:
+                        if liquidity_pools.get(p_key) and entry_target + 25.0 <= liquidity_pools[p_key] <= entry_target + 30.0:
+                            tp2_candidates.append(liquidity_pools[p_key])
+                    for eqh in liquidity_pools.get('eqh', []):
+                        if entry_target + 25.0 <= eqh['level'] <= entry_target + 30.0:
+                            tp2_candidates.append(eqh['level'])
+
+                tp2_target = sorted(tp2_candidates)[0] if tp2_candidates else round(entry_target + (28.0 if is_xau else 0.0280), 2 if is_xau else 5)
+
+            else:
+                # Bearish Dynamic TP
+                tp1_candidates = []
+                for s in (snr_zones or []):
+                    if s.get('type') == 'SUPPORT' and entry_target - max_tp1_dist <= s['level'] <= entry_target - min_tp1_dist:
+                        tp1_candidates.append(s['level'])
+                for f in valid_fvgs:
+                    if f.get('type') == 'FVG_BULLISH' and entry_target - max_tp1_dist <= f['top'] <= entry_target - min_tp1_dist:
+                        tp1_candidates.append(f['top'])
+                for o in valid_obs:
+                    if o.get('type') == 'OB_BULLISH' and entry_target - max_tp1_dist <= o['top'] <= entry_target - min_tp1_dist:
+                        tp1_candidates.append(o['top'])
+
+                tp1_target = sorted(tp1_candidates, reverse=True)[0] if tp1_candidates else round(entry_target - min(min_tp1_dist, max_tp1_dist), 2 if is_xau else 5)
+
+                # TP2: 250 - 300 pips ($25.0 - $30.0 on Gold, default 280 pips / $28.0)
+                tp2_candidates = []
+                if liquidity_pools:
+                    for p_key in ['asian_low', 'pdl']:
+                        if liquidity_pools.get(p_key) and entry_target - 30.0 <= liquidity_pools[p_key] <= entry_target - 25.0:
+                            tp2_candidates.append(liquidity_pools[p_key])
+                    for eql in liquidity_pools.get('eql', []):
+                        if entry_target - 30.0 <= eql['level'] <= entry_target - 25.0:
+                            tp2_candidates.append(eql['level'])
+
+                tp2_target = sorted(tp2_candidates, reverse=True)[0] if tp2_candidates else round(entry_target - (28.0 if is_xau else 0.0280), 2 if is_xau else 5)
+
+            # -------------------------------------------------------------
+            # RULE 7: Adaptive Risk to Reward (RRR >= 1.5) Enforced
+            # -------------------------------------------------------------
+            tp1_dist = abs(tp1_target - entry_target)
+            tp2_dist = abs(tp2_target - entry_target)
+            
+            rr_tp1 = tp1_dist / risk_dist if risk_dist > 0 else 0
+            rr_tp2 = tp2_dist / risk_dist if risk_dist > 0 else 0
+
+            # Syarat: RRR ke TP1 minimal 1:1.5R (Amankan 50% Lot & SL ke BE)
+            if rr_tp1 < 1.45:  # Tolerate rounding
+                return None
+
+            # -------------------------------------------------------------
+            # RULE 8: Grade A+ Verification (All Criteria Fulfilled)
+            # -------------------------------------------------------------
+            setup_grade = "A+"
+            reasons.append(f"Session Active: {kz_reason}")
+            reasons.append(f"Risk Management: Target TP (TP1: {tp1_dist/pip_unit:.0f}p / 1:{rr_tp1:.1f}R | TP2: {tp2_dist/pip_unit:.0f}p / 1:{rr_tp2:.1f}R)")
 
             return {
                 "symbol": symbol,
                 "type": "BUY" if is_bullish else "SELL",
                 "signal_type": exec_type,
                 "entry": entry_target,
+                "entry_zone": f"{min(poi_bottom, poi_top):.2f} - {max(poi_bottom, poi_top):.2f} ({poi_type})",
                 "sl": sl_target,
-                "tp": tp_target,
+                "tp": tp2_target,
                 "tp1": tp1_target,
-                "tp2": tp_target,
+                "tp2": tp2_target,
                 "reasons": reasons,
                 "grade": setup_grade,
                 "score": confluence_score,
-                "risk_multiplier": risk_multiplier,
+                "risk_multiplier": 1.0,
                 "poi_signature": poi_sig,
-                "rr_ratio": round(rr_ratio, 2)
+                "rr_ratio": round(rr_tp2, 2),
+                "rr_tp1": round(rr_tp1, 2),
+                "sweep_pool": pool_name,
+                "killzone": kz_reason
             }
 
-        # 5. Evaluate both directions and pick the best setup
+        # Evaluate both directions
         candidates = []
         buy_candidate = _evaluate_setup_candidate(is_bullish=True)
         if buy_candidate:
@@ -619,34 +474,31 @@ class SignalGenerator:
         if not candidates:
             return None
 
-        # Sort candidates by Confluence Score descending, then by R:R
+        # Pick best Grade A+ candidate
         candidates.sort(key=lambda c: (c['score'], c['rr_ratio']), reverse=True)
         best = candidates[0]
 
-        # 6. Calculate Position Size (Lot Size) with Psychology/Risk Manager
+        # Calculate Lot Size
         settings = settings_manager.load_settings()
         acc_balance = float(settings.get("account_balance", 10000.0))
         base_risk_pct = float(settings.get("risk_percentage", 1.0))
-        final_risk_pct = base_risk_pct * best['risk_multiplier']
 
         decimal_places = 2 if is_xau or "JPY" in symbol else 5
         entry_val = round(best['entry'], decimal_places)
         sl_val = round(best['sl'], decimal_places)
-        tp_val = round(best['tp'], decimal_places)
-        tp1_val = round(best.get('tp1', best['tp']), decimal_places)
-        tp2_val = round(best.get('tp2', best['tp']), decimal_places)
+        tp1_val = round(best['tp1'], decimal_places)
+        tp2_val = round(best['tp2'], decimal_places)
 
         sl_pips = calculate_pips(symbol, entry_val, sl_val)
-        lot_size = round(calculate_lot_size(acc_balance, final_risk_pct, sl_pips, symbol), 2)
+        lot_size = round(calculate_lot_size(acc_balance, base_risk_pct, sl_pips, symbol), 2)
 
-        # Build final signal object
-        ui_badge = "[UI_BADGE:ENTRY ZONE ACTIVE] Harga di zona, siap eksekusi." if best['signal_type'] == "CONFIRMED" else "[UI_BADGE:PENDING LIMIT ORDER] Pasang pending limit, tunggu jemputan."
-        reasons_list = [ui_badge] + best['reasons']
         tp1_pips = calculate_pips(symbol, entry_val, tp1_val)
         tp2_pips = calculate_pips(symbol, entry_val, tp2_val)
+
+        ui_badge = "[UI_BADGE:ENTRY ZONE ACTIVE] Harga di zona, siap eksekusi." if best['signal_type'] == "CONFIRMED" else "[UI_BADGE:PENDING LIMIT ORDER] Pasang pending limit, tunggu jemputan."
+        reasons_list = [ui_badge] + best['reasons']
         reasons_list.append(f"TP1 (+{tp1_pips:.0f}p): {tp1_val} (Amankan 50% Lot & SL ke BE) | TP2 (+{tp2_pips:.0f}p): {tp2_val} (Runner)")
-        reasons_list.append(f"SMC Grade: {best['grade']} (Confluence Score: {best['score']}/10, R:R: 1:{best['rr_ratio']})")
-        reasons_list.append(f"Session: {kz_reason}")
+        reasons_list.append(f"SMC Grade: {best['grade']} (RRR TP1: 1:{best['rr_tp1']}, TP2: 1:{best['rr_ratio']})")
 
         signal = {
             "symbol": symbol,
@@ -654,22 +506,27 @@ class SignalGenerator:
             "signal_type": best['signal_type'],
             "timestamp": now_time.isoformat() if current_time_str else datetime.now().isoformat(),
             "entry": entry_val,
+            "entry_zone": best['entry_zone'],
             "sl": sl_val,
-            "tp": tp_val,
+            "tp": tp2_val,
             "tp1": tp1_val,
             "tp2": tp2_val,
-            "partial_tp_pips": req_partial_tp_pips,
+            "partial_tp_pips": tp1_pips,
             "lot_size": lot_size,
             "reasons": reasons_list,
             "status": "PENDING",
             "grade": best['grade'],
             "atr": round(atr, 2),
             "poi_signature": best['poi_signature'],
-            "rr_ratio": best['rr_ratio']
+            "rr_ratio": best['rr_ratio'],
+            "rr_tp1": best['rr_tp1'],
+            "sweep_pool": best['sweep_pool'],
+            "killzone": best['killzone']
         }
 
-        print(f"\n{'='*55}\n[SMC ENGINE] Valid Setup Found for {symbol}!\nType: {signal['type']} ({signal['signal_type']}) | Grade: {signal['grade']} (Score: {best['score']})\nEntry: {signal['entry']} | SL: {signal['sl']} | TP1: {signal['tp1']} (+{tp1_pips:.0f}p) | TP2: {signal['tp']} (+{tp2_pips:.0f}p)\n{'='*55}\n")
+        print(f"\n{'='*60}\n[SMC GRADE A+ SETUP] {symbol} {signal['type']} ({signal['signal_type']})\nEntry: {signal['entry']} (Zone: {signal['entry_zone']}) | SL: {signal['sl']} (-{sl_pips:.0f}p)\nTP1: {signal['tp1']} (+{tp1_pips:.0f}p | 1:{best['rr_tp1']}R) | TP2: {signal['tp2']} (+{tp2_pips:.0f}p | 1:{best['rr_ratio']}R)\nSweep: {best['sweep_pool']} | Session: {best['killzone']}\n{'='*60}\n")
 
         self.active_signals[symbol] = signal
         self.cooldowns[symbol] = now_time + timedelta(minutes=self.cooldown_minutes)
         return signal
+

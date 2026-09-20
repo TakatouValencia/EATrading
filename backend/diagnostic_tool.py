@@ -95,13 +95,14 @@ async def run_diagnostics():
         m15_fvgs = e_m15.detect_fvg()
         m5_obs = e_m5.detect_order_blocks(m5_ev)
         m5_fvgs = e_m5.detect_fvg()
-        sweeps = e_m1.detect_liquidity_sweeps()
+        liquidity_pools = e_m15.detect_liquidity_pools(is_xau=True)
+        sweeps = e_m15.detect_liquidity_sweeps(liquidity_pools=liquidity_pools)
         pd = e_m15.detect_premium_discount()
-        atr = e_m1.calculate_atr(14)
+        atr = e_m15.calculate_atr(14)
         
         print(f"  • Macro Intraday Trend (M15): {m15_trend}")
         print(f"  • Intermediate Trend (M5): {m5_trend}")
-        print(f"  • ATR (M1 Volatility): ${atr:.2f}")
+        print(f"  • ATR (M15 Volatility): ${atr:.2f}")
         print(f"  • Premium/Discount Range: Low=${pd.get('range_low', 0):.2f} | Eq=${pd.get('eq', 0):.2f} | High=${pd.get('range_high', 0):.2f}")
         print(f"  • Refined Institutional POIs: {len(m15_obs + m5_obs)} Order Blocks, {len(m15_fvgs + m5_fvgs)} FVGs")
         print(f"  • Liquidity Sweeps Detected: {len(sweeps)}")
@@ -114,18 +115,23 @@ async def run_diagnostics():
         signal = await sg.evaluate_confluence(
             symbol="XAU/USD",
             current_price=current_price,
-            events=m1_ev,
+            events=m15_ev + m5_ev,
             obs=m15_obs + m5_obs,
             fvgs=m15_fvgs + m5_fvgs,
             sweeps=sweeps,
             m15_trend=m15_trend,
             m5_trend=m5_trend,
             htf_trend=m15_trend,
+            h1_trend=m15_trend,
+            h4_trend=m15_trend,
+            d1_trend=m15_trend,
             pd_zones=pd,
             trade_manager=tm,
             atr=atr,
             db=db,
-            engine_ltf=e_m1
+            engine_ltf=e_m15,
+            engine_htf=e_m15,
+            liquidity_pools=liquidity_pools
         )
         
         if signal:

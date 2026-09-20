@@ -1,4 +1,5 @@
 from typing import Dict, List, Optional
+from datetime import datetime
 
 class SMCEngine:
     def __init__(self, data: List[Dict], swing_length: int = 5):
@@ -266,56 +267,277 @@ class SMCEngine:
         # Return valid (not completely invalidated) Order Blocks
         return [ob for ob in obs if not ob['mitigated']]
 
-    def detect_liquidity_sweeps(self) -> List[Dict]:
+    def detect_liquidity_pools(self, is_xau: bool = True) -> Dict:
+        """
+        Detect Key Institutional Liquidity Pools:
+        1. Equal Highs (EQH) - Buy-Side Liquidity (BSL)
+        2. Equal Lows (EQL) - Sell-Side Liquidity (SSL)
+        3. Asian Session High & Low (00:00 - 07:00 UTC)
+        4. Previous Day High (PDH) & Previous Day Low (PDL)
+        """
+        threshold_pct = 0.0008 if is_xau else 0.0003 # ~ $1.5-$2.0 on Gold
+        
+        # 1. Equal Highs & Equal Lows from Swing Points
+        swing_highs = [(i, row['high']) for i, row in enumerate(self.data) if row.get('swing_high')]
+        swing_lows = [(i, row['low']) for i, row in enumerate(self.data) if row.get('swing_low')]
+        
+        eqh_pools = []
+        visited_h = set()
+        for idx1, h1 in swing_highs:
+            if idx1 in visited_h:
+                continue
+            cluster = [(idx1, h1)]
+            for idx2, h2 in swing_highs:
+                if idx1 != idx2 and idx2 not in visited_h and abs(h1 - h2) / h1 <= threshold_pct:
+                    cluster.append((idx2, h2))
+            if len(cluster) >= 2:
+                for c_idx, _ in cluster:
+                    visited_h.add(c_idx)
+                avg_level = sum(c[1] for c in cluster) / len(cluster)
+                eqh_pools.append({
+                    "type": "EQH",
+                    "level": avg_level,
+                    "touches": len(cluster),
+                    "description": f"Equal Highs (EQH Liquidity Pool @ {avg_level:.2f}, {len(cluster)} touches)"
+                })
+                
+        eql_pools = []
+        visited_l = set()
+        for idx1, l1 in swing_lows:
+            if idx1 in visited_l:
+                continue
+            cluster = [(idx1, l1)]
+            for idx2, l2 in swing_lows:
+                if idx1 != idx2 and idx2 not in visited_l and abs(l1 - l2) / l1 <= threshold_pct:
+                    cluster.append((idx2, l2))
+            if len(cluster) >= 2:
+                for c_idx, _ in cluster:
+                    visited_l.add(c_idx)
+                avg_level = sum(c[1] for c in cluster) / len(cluster)
+                eql_pools.append({
+                    "type": "EQL",
+                    "level": avg_level,
+                    "touches": len(cluster),
+                    "description": f"Equal Lows (EQL Liquidity Pool @ {avg_level:.2f}, {len(cluster)} touches)"
+                })
+
+        # 2. Asian Session High & Low (00:00 - 07:00 UTC)
+        # Scan recent candles
+        asian_high = None
+        asian_low = None
+        asian_date = None
+        
+        # 3. Previous Day High & Low (PDH & PDL)
+        daily_candles = {} # date_str -> list of candles
+        
+        for row in self.data:
+            ts = row.get('timestamp')
+            if not ts:
+                continue
+            try:
+                if isinstance(ts, str):
+                    clean_ts = ts.replace("Z", "+00:00")
+                    dt = datetime.fromisoformat(clean_ts)
+                else:
+                    dt = ts
+                d_date = dt.date()
+                d_hour = dt.hour
+                
+                # Daily grouping
+                d_key = d_date.isoformat()
+                if d_key not in daily_candles:
+                    daily_candles[d_key] = []
+                daily_candles[d_key].append(row)
+                
+                # Asian Session (00:00 - 07:00 UTC)
+                if 0 <= d_hour < 7:
+                    if asian_date != d_date:
+                        asian_date = d_date
+                        asian_high = row['high']
+                        asian_low = row['low']
+                    else:
+                        asian_high = max(asian_high, row['high'])
+                        asian_low = min(asian_low, row['low'])
+            except Exception:
+                continue
+
+        # Extract PDH and PDL from previous complete day
+        sorted_days = sorted(daily_candles.keys())
+        pdh = None
+        pdl = None
+        if len(sorted_days) >= 2:
+            prev_day_key = sorted_days[-2] # Day before today
+            prev_day_data = daily_candles[prev_day_key]
+            pdh = max(c['high'] for c in prev_day_data)
+            pdl = min(c['low'] for c in prev_day_data)
+        elif len(sorted_days) == 1:
+            day_data = daily_candles[sorted_days[0]]
+            pdh = max(c['high'] for c in day_data)
+            pdl = min(c['low'] for c in day_data)
+
+        pools_summary = {
+            "eqh": eqh_pools,
+            "eql": eql_pools,
+            "asian_high": asian_high,
+            "asian_low": asian_low,
+            "pdh": pdh,
+            "pdl": pdl
+        }
+        return pools_summary
+
+    def detect_liquidity_sweeps(self, liquidity_pools: Optional[Dict] = None) -> List[Dict]:
+        """
+        Detect Institutional Liquidity Sweeps:
+        - Target Pools: Asian Session High/Low, PDH/PDL, EQH/EQL, and Swing Highs/Lows.
+        - Requires a wick/temporary break beyond the liquidity pool followed by a strong rejection.
+        - Calculates lower/upper wick ratio and volume spike (institutional absorption).
+        - Accurately tracks sweep_low and sweep_high for dynamic Stop Loss calculation.
+        """
         sweeps = []
+        if liquidity_pools is None:
+            liquidity_pools = self.detect_liquidity_pools()
+
         last_swing_high_idx = None
         last_swing_low_idx = None
         
+        # Prepare specific pool targets to evaluate against
+        bullish_pool_targets = [] # price must sweep BELOW these (Sell-side liquidity)
+        if liquidity_pools.get('asian_low') is not None:
+            bullish_pool_targets.append(("ASIAN_LOW", liquidity_pools['asian_low'], f"Asian Session Low ({liquidity_pools['asian_low']:.2f})"))
+        if liquidity_pools.get('pdl') is not None:
+            bullish_pool_targets.append(("PDL", liquidity_pools['pdl'], f"Previous Day Low / PDL ({liquidity_pools['pdl']:.2f})"))
+        for eql in liquidity_pools.get('eql', []):
+            bullish_pool_targets.append(("EQL", eql['level'], eql['description']))
+
+        bearish_pool_targets = [] # price must sweep ABOVE these (Buy-side liquidity)
+        if liquidity_pools.get('asian_high') is not None:
+            bearish_pool_targets.append(("ASIAN_HIGH", liquidity_pools['asian_high'], f"Asian Session High ({liquidity_pools['asian_high']:.2f})"))
+        if liquidity_pools.get('pdh') is not None:
+            bearish_pool_targets.append(("PDH", liquidity_pools['pdh'], f"Previous Day High / PDH ({liquidity_pools['pdh']:.2f})"))
+        for eqh in liquidity_pools.get('eqh', []):
+            bearish_pool_targets.append(("EQH", eqh['level'], eqh['description']))
+
         for i, row in enumerate(self.data):
-            if row['swing_high']:
+            if row.get('swing_high'):
                 last_swing_high_idx = i
-            if row['swing_low']:
+            if row.get('swing_low'):
                 last_swing_low_idx = i
-                
-            if last_swing_high_idx is None or last_swing_low_idx is None:
-                continue
                 
             current_high = row['high']
             current_low = row['low']
+            current_open = row['open']
             current_close = row['close']
+            candle_range = current_high - current_low
+            current_vol = row.get('volume', 0)
             
-            # Bearish Sweep: price goes above last swing high, but closes below it
-            if last_swing_high_idx < i and current_high > self.data[last_swing_high_idx]['high'] and current_close < self.data[last_swing_high_idx]['high']:
-                # If the swept swing was formed recently (e.g. < 15 candles ago), we classify it as an Inducement (IDM) sweep.
-                is_idm = (i - last_swing_high_idx) <= 15
-                
-                sweeps.append({
-                    "type": "SWEEP_BEARISH",
-                    "index": i,
-                    "timestamp": row['timestamp'],
-                    "level": self.data[last_swing_high_idx]['high'],
-                    "swept_swing_idx": last_swing_high_idx,
-                    "is_idm": is_idm
-                })
-                # Reset to avoid multiple triggers for the same swing
-                last_swing_high_idx = None
-                
-            # Bullish Sweep: price goes below last swing low, but closes above it
-            elif last_swing_low_idx < i and current_low < self.data[last_swing_low_idx]['low'] and current_close > self.data[last_swing_low_idx]['low']:
-                is_idm = (i - last_swing_low_idx) <= 15
-                
-                sweeps.append({
-                    "type": "SWEEP_BULLISH",
-                    "index": i,
-                    "timestamp": row['timestamp'],
-                    "level": self.data[last_swing_low_idx]['low'],
-                    "swept_swing_idx": last_swing_low_idx,
-                    "is_idm": is_idm
-                })
-                # Reset
-                last_swing_low_idx = None
-                
+            # --- Volume Analysis (20-period moving average) ---
+            avg_vol = 0
+            v_count = 0
+            for j in range(max(0, i - 20), i):
+                avg_vol += self.data[j].get('volume', 0)
+                v_count += 1
+            avg_vol = (avg_vol / v_count) if v_count > 0 else 0
+            is_volume_spike = (current_vol >= 1.2 * avg_vol) if avg_vol > 0 else True
+            
+            # Rejection wick measurements
+            lower_wick = min(current_open, current_close) - current_low
+            upper_wick = current_high - max(current_open, current_close)
+            lower_wick_ratio = (lower_wick / candle_range) if candle_range > 0 else 0
+            upper_wick_ratio = (upper_wick / candle_range) if candle_range > 0 else 0
+            
+            has_bullish_rejection = (lower_wick_ratio >= 0.35) or (current_close > current_open and (current_close - current_open) >= 0.4 * candle_range)
+            has_bearish_rejection = (upper_wick_ratio >= 0.35) or (current_close < current_open and (current_open - current_close) >= 0.4 * candle_range)
+
+            # Check Bullish Sweep of Swing Low
+            if last_swing_low_idx is not None and last_swing_low_idx < i:
+                ref_low = self.data[last_swing_low_idx]['low']
+                if current_low < ref_low and current_close > ref_low:
+                    is_idm = (i - last_swing_low_idx) <= 15
+                    sweeps.append({
+                        "type": "SWEEP_BULLISH",
+                        "index": i,
+                        "timestamp": row['timestamp'],
+                        "level": ref_low,
+                        "sweep_low": current_low,
+                        "swept_swing_idx": last_swing_low_idx,
+                        "is_idm": is_idm,
+                        "pool_type": "SWING_LOW",
+                        "pool_name": f"Swing Low ({ref_low:.2f})",
+                        "has_rejection": has_bullish_rejection,
+                        "wick_ratio": round(lower_wick_ratio, 2),
+                        "volume_spike": is_volume_spike,
+                        "volume": current_vol,
+                        "avg_volume": round(avg_vol, 1)
+                    })
+                    last_swing_low_idx = None # Reset
+                    
+            # Check Bearish Sweep of Swing High
+            if last_swing_high_idx is not None and last_swing_high_idx < i:
+                ref_high = self.data[last_swing_high_idx]['high']
+                if current_high > ref_high and current_close < ref_high:
+                    is_idm = (i - last_swing_high_idx) <= 15
+                    sweeps.append({
+                        "type": "SWEEP_BEARISH",
+                        "index": i,
+                        "timestamp": row['timestamp'],
+                        "level": ref_high,
+                        "sweep_high": current_high,
+                        "swept_swing_idx": last_swing_high_idx,
+                        "is_idm": is_idm,
+                        "pool_type": "SWING_HIGH",
+                        "pool_name": f"Swing High ({ref_high:.2f})",
+                        "has_rejection": has_bearish_rejection,
+                        "wick_ratio": round(upper_wick_ratio, 2),
+                        "volume_spike": is_volume_spike,
+                        "volume": current_vol,
+                        "avg_volume": round(avg_vol, 1)
+                    })
+                    last_swing_high_idx = None # Reset
+
+            # Check Bullish Sweep of Explicit Liquidity Pools (Asian Low, PDL, EQL)
+            # Sweep occurs if candle dips below the pool level with a wick/close returning above or rejecting
+            for p_type, p_level, p_desc in bullish_pool_targets:
+                if current_low < p_level and current_close >= p_level - (0.0005 * p_level):
+                    # Avoid duplicate recordings on immediately adjacent candles for same level
+                    if not any(s['type'] == 'SWEEP_BULLISH' and s.get('pool_type') == p_type and abs(s['index'] - i) < 5 for s in sweeps):
+                        sweeps.append({
+                            "type": "SWEEP_BULLISH",
+                            "index": i,
+                            "timestamp": row['timestamp'],
+                            "level": p_level,
+                            "sweep_low": current_low,
+                            "is_idm": False,
+                            "pool_type": p_type,
+                            "pool_name": p_desc,
+                            "has_rejection": has_bullish_rejection,
+                            "wick_ratio": round(lower_wick_ratio, 2),
+                            "volume_spike": is_volume_spike,
+                            "volume": current_vol,
+                            "avg_volume": round(avg_vol, 1)
+                        })
+
+            # Check Bearish Sweep of Explicit Liquidity Pools (Asian High, PDH, EQH)
+            for p_type, p_level, p_desc in bearish_pool_targets:
+                if current_high > p_level and current_close <= p_level + (0.0005 * p_level):
+                    if not any(s['type'] == 'SWEEP_BEARISH' and s.get('pool_type') == p_type and abs(s['index'] - i) < 5 for s in sweeps):
+                        sweeps.append({
+                            "type": "SWEEP_BEARISH",
+                            "index": i,
+                            "timestamp": row['timestamp'],
+                            "level": p_level,
+                            "sweep_high": current_high,
+                            "is_idm": False,
+                            "pool_type": p_type,
+                            "pool_name": p_desc,
+                            "has_rejection": has_bearish_rejection,
+                            "wick_ratio": round(upper_wick_ratio, 2),
+                            "volume_spike": is_volume_spike,
+                            "volume": current_vol,
+                            "avg_volume": round(avg_vol, 1)
+                        })
+
         return sweeps
+
 
     def detect_support_resistance(self, threshold_pct: float = 0.001) -> List[Dict]:
         """
@@ -1149,4 +1371,114 @@ class SMCEngine:
 
         return [p for p in crt_patterns if not p['mitigated']]
 
+    def find_dynamic_tp_targets(self, is_bullish: bool, entry_price: float,
+                                htf_engine = None,
+                                htf_fvgs: List[Dict] = None,
+                                htf_obs: List[Dict] = None) -> Dict:
+        """
+        Calculate Dynamic Take Profit targets based on structural liquidity:
+        - TP1: Nearest Unfilled FVG or Swing High/Low.
+        - TP2: Opposite HTF Liquidity (H1/H4 Swing High/Low, EQH/EQL) or H1 Fair Value Gap.
+        """
+        # 1. TP1 Candidates (Intermediate Structure & Local Unfilled FVGs)
+        tp1_candidates = []
+        
+        # Local swing points
+        for row in reversed(self.data[-60:]):
+            if is_bullish and row.get('swing_high') and row['high'] > entry_price + 0.5:
+                tp1_candidates.append(row['high'])
+            elif not is_bullish and row.get('swing_low') and row['low'] < entry_price - 0.5:
+                tp1_candidates.append(row['low'])
+                
+        # Local FVGs
+        local_fvgs = self.detect_fvg()
+        for f in local_fvgs:
+            if is_bullish and f['type'] == 'FVG_BEARISH' and f['bottom'] > entry_price + 0.5:
+                tp1_candidates.append(f['bottom'])
+            elif not is_bullish and f['type'] == 'FVG_BULLISH' and f['top'] < entry_price - 0.5:
+                tp1_candidates.append(f['top'])
+                
+        # Sort TP1 candidates by proximity to entry
+        if is_bullish:
+            tp1_candidates = sorted([c for c in tp1_candidates if c > entry_price])
+            tp1_target = tp1_candidates[0] if tp1_candidates else (entry_price + 5.0)
+        else:
+            tp1_candidates = sorted([c for c in tp1_candidates if c < entry_price], reverse=True)
+            tp1_target = tp1_candidates[0] if tp1_candidates else (entry_price - 5.0)
+            
+        # 2. TP2 Candidates (Opposite HTF Liquidity / H1 FVG)
+        tp2_candidates = []
+        if htf_engine and hasattr(htf_engine, 'data'):
+            htf_pools = htf_engine.detect_liquidity_pools()
+            if is_bullish:
+                if htf_pools.get('asian_high') and htf_pools['asian_high'] > entry_price:
+                    tp2_candidates.append(htf_pools['asian_high'])
+                if htf_pools.get('pdh') and htf_pools['pdh'] > entry_price:
+                    tp2_candidates.append(htf_pools['pdh'])
+                for eqh in htf_pools.get('eqh', []):
+                    if eqh['level'] > entry_price:
+                        tp2_candidates.append(eqh['level'])
+                for row in reversed(htf_engine.data[-60:]):
+                    if row.get('swing_high') and row['high'] > entry_price:
+                        tp2_candidates.append(row['high'])
+            else:
+                if htf_pools.get('asian_low') and htf_pools['asian_low'] < entry_price:
+                    tp2_candidates.append(htf_pools['asian_low'])
+                if htf_pools.get('pdl') and htf_pools['pdl'] < entry_price:
+                    tp2_candidates.append(htf_pools['pdl'])
+                for eql in htf_pools.get('eql', []):
+                    if eql['level'] < entry_price:
+                        tp2_candidates.append(eql['level'])
+                for row in reversed(htf_engine.data[-60:]):
+                    if row.get('swing_low') and row['low'] < entry_price:
+                        tp2_candidates.append(row['low'])
 
+        if htf_fvgs:
+            for f in htf_fvgs:
+                if is_bullish and f['type'] == 'FVG_BEARISH' and f['bottom'] > entry_price:
+                    tp2_candidates.append(f['bottom'])
+                elif not is_bullish and f['type'] == 'FVG_BULLISH' and f['top'] < entry_price:
+                    tp2_candidates.append(f['top'])
+
+        if is_bullish:
+            valid_tp2 = sorted([c for c in tp2_candidates if c > tp1_target])
+            tp2_target = valid_tp2[0] if valid_tp2 else (entry_price + 12.0)
+        else:
+            valid_tp2 = sorted([c for c in tp2_candidates if c < tp1_target], reverse=True)
+            tp2_target = valid_tp2[0] if valid_tp2 else (entry_price - 12.0)
+
+        return {
+            "tp1": tp1_target,
+            "tp2": tp2_target
+        }
+
+    def calculate_rsi(self, period: int = 14) -> float:
+        """Calculate Relative Strength Index (RSI)."""
+        if len(self.data) < period + 1:
+            return 50.0
+        gains = []
+        losses = []
+        for i in range(1, len(self.data)):
+            change = self.data[i]['close'] - self.data[i-1]['close']
+            if change > 0:
+                gains.append(change)
+                losses.append(0.0)
+            else:
+                gains.append(0.0)
+                losses.append(abs(change))
+                
+        if len(gains) < period:
+            return 50.0
+            
+        # Wilders smoothing
+        avg_gain = sum(gains[:period]) / period
+        avg_loss = sum(losses[:period]) / period
+        
+        for i in range(period, len(gains)):
+            avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+            avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+            
+        if avg_loss == 0:
+            return 100.0
+        rs = avg_gain / avg_loss
+        return round(100.0 - (100.0 / (1.0 + rs)), 2)

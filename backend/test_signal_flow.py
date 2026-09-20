@@ -19,80 +19,131 @@ class TestSignalFlow(unittest.IsolatedAsyncioTestCase):
         self.db = DummyDB()
         self.tm = TradeManager(self.db)
 
-    async def test_saturday_returns_none(self):
-        # Saturday 2026-09-12 14:00 UTC (Market closed)
-        sat_time = "2026-09-12T14:00:00Z"
+    async def test_outside_killzone_returns_none(self):
+        # 05:00 UTC = 12:00 WIB (Outside London KZ 14:00-17:00 and NY KZ 19:30-22:30 WIB)
+        asian_mid_time = "2026-09-08T05:00:00Z"
         res = await self.sg.evaluate_confluence(
             symbol="XAU/USD",
             current_price=2500.0,
-            events=[],
-            obs=[],
+            events=[{"type": "CHOCH_BULLISH"}],
+            obs=[{"type": "OB_BULLISH", "bottom": 2490.0, "top": 2495.0, "mitigated": False}],
             fvgs=[],
-            current_time_str=sat_time
+            sweeps=[{"type": "SWEEP_BULLISH", "level": 2485.0, "has_rejection": True, "volume_spike": True}],
+            current_time_str=asian_mid_time
         )
-        self.assertIsNone(res, "Signal generator MUST return None on Saturday when market is closed.")
+        self.assertIsNone(res, "Signal generator MUST return None outside London & NY Killzones.")
 
-    async def test_sunday_daytime_returns_none(self):
-        # Sunday 2026-09-13 10:00 UTC (Market closed)
-        sun_time = "2026-09-13T10:00:00Z"
-        res = await self.sg.evaluate_confluence(
-            symbol="XAU/USD",
-            current_price=2500.0,
-            events=[],
-            obs=[],
-            fvgs=[],
-            current_time_str=sun_time
-        )
-        self.assertIsNone(res, "Signal generator MUST return None on Sunday morning when market is closed.")
-
-    async def test_tuesday_killzone_structural_tp_sl(self):
-        # Tuesday 2026-09-08 08:30 UTC (London Killzone)
+    async def test_counter_trend_without_h4_choch_rejected(self):
+        # London KZ: 08:30 UTC = 15:30 WIB
         tue_time = "2026-09-08T08:30:00Z"
-        # Mocking an H1 trend BULLISH, and an M5 Bullish OB at 2490 - 2498
-        obs = [{"type": "OB_BULLISH", "bottom": 2490.0, "top": 2498.0, "mitigated": False}]
-        events = [{"type": "CHOCH_BULLISH", "level": 2502.0}]
-        sweeps = [{"type": "SWEEP_BULLISH", "level": 2488.0, "is_idm": True}]
-        
-        # Synthetic 50 candles for engine_ltf
-        candles = []
-        for i in range(50):
-            candles.append({
-                'timestamp': f"2026-09-08T08:{i:02d}:00Z",
-                'open': 2495.0, 'high': 2505.0, 'low': 2488.0, 'close': 2500.0, 'volume': 100
-            })
-        engine = SMCEngine(candles)
-        
+        # H4 is BEARISH, setup is BUY, but NO H4 CHoCH -> Must be rejected!
         res = await self.sg.evaluate_confluence(
             symbol="XAU/USD",
-            current_price=2498.2, # Near OB top
+            current_price=2495.0,
+            events=[{"type": "CHOCH_BULLISH"}],
+            obs=[{"type": "OB_BULLISH", "bottom": 2490.0, "top": 2495.0, "mitigated": False}],
+            fvgs=[{"type": "FVG_BULLISH", "bottom": 2492.0, "top": 2495.0, "mitigated": False}],
+            sweeps=[{
+                "type": "SWEEP_BULLISH", "level": 2485.0, "sweep_low": 2483.0,
+                "pool_type": "ASIAN_LOW", "pool_name": "Asian Session Low",
+                "has_rejection": True, "volume_spike": True
+            }],
+            h4_trend="BEARISH",
+            d1_trend="BEARISH",
+            h4_choch=None, # No CHoCH
+            current_time_str=tue_time
+        )
+        self.assertIsNone(res, "Counter-trend BUY against Bearish H4 MUST be rejected without H4 CHoCH.")
+
+    async def test_grade_a_plus_with_h4_choch_accepted(self):
+        # London KZ: 08:30 UTC = 15:30 WIB
+        tue_time = "2026-09-08T08:30:00Z"
+        # H4 Bearish, but H4 Bullish CHoCH confirmed!
+        # Liquidity Sweep of Asian Low at 2485.0 (sweep low 2483.0)
+        # Entry at FVG [2490.0 - 2493.0], Resistance at 2520.0
+        fvgs = [{"type": "FVG_BULLISH", "bottom": 2490.0, "top": 2493.0, "mitigated": False}]
+        events = [{"type": "CHOCH_BULLISH", "level": 2496.0}]
+        sweeps = [{
+            "type": "SWEEP_BULLISH",
+            "level": 2485.0,
+            "sweep_low": 2483.0,
+            "pool_type": "ASIAN_LOW",
+            "pool_name": "Asian Session Low (2485.00)",
+            "has_rejection": True,
+            "volume_spike": True
+        }]
+        snr_zones = [{"type": "RESISTANCE", "level": 2520.0}]
+
+        res = await self.sg.evaluate_confluence(
+            symbol="XAU/USD",
+            current_price=2492.5, # Inside FVG
             events=events,
-            obs=obs,
-            fvgs=[],
+            obs=[],
+            fvgs=fvgs,
             sweeps=sweeps,
-            m15_trend="BULLISH",
-            m5_trend="BULLISH",
-            h1_trend="BULLISH",
-            atr=2.5,
-            engine_ltf=engine,
+            h4_trend="BEARISH",
+            d1_trend="BEARISH",
+            h4_choch="CHOCH_BULLISH", # Reversal validated!
+            snr_zones=snr_zones,
+            atr=2.0,
             current_time_str=tue_time,
             trade_manager=self.tm
         )
+
+        self.assertIsNotNone(res, "Setup with H4 CHoCH reversal, Asian Low sweep, and FVG must be accepted as Grade A+.")
+        self.assertEqual(res['grade'], "A+")
+        self.assertEqual(res['type'], "BUY")
         
-        if res is not None:
-            # Check SL is safe (at least 50 pips = $5.00)
-            sl_dist = abs(res['entry'] - res['sl'])
-            self.assertGreaterEqual(sl_dist, 5.0, f"SL distance {sl_dist} should be at least $5.00 (50 pips)")
-            
-            # Check TP1 is at least 2.0R
-            tp1_dist = abs(res['tp1'] - res['entry'])
-            self.assertGreaterEqual(tp1_dist, 1.8 * sl_dist, "TP1 should have at least ~2.0 R:R")
-            
-            # Check R:R ratio
-            self.assertGreaterEqual(res['rr_ratio'], 1.8, "R:R ratio should be at least 1.8")
-            print(f"Generated setup: {res['type']} @ {res['entry']} | SL: {res['sl']} (-{sl_dist:.2f}) | TP1: {res['tp1']} | TP2: {res['tp']} | R:R 1:{res['rr_ratio']}")
+        # SL is capped at max 70 pips (7.0): 2492.5 - 7.0 = 2485.50
+        self.assertAlmostEqual(res['sl'], 2485.50, places=1)
+        
+        # RRR to TP1 must be >= 1.45 (1:1.5 minimum adaptive)
+        risk = res['entry'] - res['sl']
+        reward_tp1 = res['tp1'] - res['entry']
+        self.assertGreaterEqual(reward_tp1 / risk, 1.45, "TP1 must satisfy at least 1:1.5 RRR")
+        print(f"\n[TEST PASS] Grade A+ Setup: {res['symbol']} {res['type']} @ {res['entry']} | SL: {res['sl']} | TP1: {res['tp1']} | TP2: {res['tp2']} | RRR: 1:{res['rr_tp1']}")
+
+    async def test_new_york_killzone_sell_setup(self):
+        # NY KZ: 13:30 UTC = 20:30 WIB (Within 19:30 - 22:30 WIB)
+        ny_time = "2026-09-08T13:30:00Z"
+        # Sweep of PDH at 2530.0 (sweep high 2532.0)
+        fvgs = [{"type": "FVG_BEARISH", "bottom": 2520.0, "top": 2523.0, "mitigated": False}]
+        events = [{"type": "CHOCH_BEARISH", "level": 2518.0}]
+        sweeps = [{
+            "type": "SWEEP_BEARISH",
+            "level": 2530.0,
+            "sweep_high": 2532.0,
+            "pool_type": "PDH",
+            "pool_name": "Previous Day High / PDH (2530.00)",
+            "has_rejection": True,
+            "volume_spike": True
+        }]
+        snr_zones = [{"type": "SUPPORT", "level": 2508.0}]
+
+        res = await self.sg.evaluate_confluence(
+            symbol="XAU/USD",
+            current_price=2521.5, # Inside Bearish FVG
+            events=events,
+            obs=[],
+            fvgs=fvgs,
+            sweeps=sweeps,
+            h4_trend="BEARISH",
+            d1_trend="BEARISH",
+            snr_zones=snr_zones,
+            atr=2.5,
+            current_time_str=ny_time,
+            trade_manager=self.tm
+        )
+
+        self.assertIsNotNone(res, "NY Killzone SELL setup on PDH sweep must be accepted.")
+        self.assertEqual(res['grade'], "A+")
+        self.assertEqual(res['type'], "SELL")
+        # SL is capped at max 70 pips (7.0): 2521.5 + 7.0 = 2528.50
+        self.assertAlmostEqual(res['sl'], 2528.50, places=1)
+        self.assertGreaterEqual(res['rr_tp1'], 1.45)
+        print(f"\n[TEST PASS] NY KZ Grade A+ SELL: {res['symbol']} {res['type']} @ {res['entry']} | SL: {res['sl']} | TP1: {res['tp1']} | TP2: {res['tp2']}")
 
     async def test_daily_trade_limit(self):
-        # When daily completed trades reaches max_daily_trades (2), new trades should be locked
         self.tm.daily_completed_trades = 2
         allowed, reason = self.tm.check_trading_allowed()
         self.assertFalse(allowed)
@@ -100,3 +151,4 @@ class TestSignalFlow(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

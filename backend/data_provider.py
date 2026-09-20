@@ -267,6 +267,22 @@ class DataProvider:
                             'volume': sum(c.get('volume', 0) for c in chunk)
                         })
                     return m5_data[-max_records:] if max_records else m5_data
+            elif interval in ["1day", "D1"]:
+                h4_data = self.get_historical_data_from_csv(symbol, "4h")
+                if h4_data:
+                    d1_data = []
+                    for i in range(0, len(h4_data), 6):
+                        chunk = h4_data[i:i+6]
+                        if not chunk: continue
+                        d1_data.append({
+                            'timestamp': chunk[0]['timestamp'],
+                            'open': chunk[0]['open'],
+                            'high': max(c['high'] for c in chunk),
+                            'low': min(c['low'] for c in chunk),
+                            'close': chunk[-1]['close'],
+                            'volume': sum(c.get('volume', 0) for c in chunk)
+                        })
+                    return d1_data[-max_records:] if max_records else d1_data
             return []
             
         try:

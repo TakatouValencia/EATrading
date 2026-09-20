@@ -115,8 +115,10 @@ async def run_smc_analysis(tick: dict):
                 app.state.market_data = {}
                 
             if symbol not in app.state.market_data:
-                # Fetch initial historical data for H1, M15, M5, M1 in threadpool to keep event loop free
-                df_h1 = await asyncio.to_thread(data_provider.get_historical_data, symbol, interval="1h", use_csv=False)
+                # Fetch initial historical data for D1, H4, H1, M15, M5, M1 in threadpool to keep event loop free
+                df_d1 = await asyncio.to_thread(data_provider.get_historical_data, symbol, interval="1day", use_csv=True)
+                df_h4 = await asyncio.to_thread(data_provider.get_historical_data, symbol, interval="4h", use_csv=True)
+                df_h1 = await asyncio.to_thread(data_provider.get_historical_data, symbol, interval="1h", use_csv=True)
                 df_m15 = await asyncio.to_thread(data_provider.get_historical_data, symbol, interval="15min", use_csv=False)
                 df_m5 = await asyncio.to_thread(data_provider.get_historical_data, symbol, interval="5min", use_csv=False)
                 df_m1 = await asyncio.to_thread(data_provider.get_historical_data, symbol, interval="1min", use_csv=False)
@@ -125,12 +127,18 @@ async def run_smc_analysis(tick: dict):
                     print(f"[{symbol}] Failed to fetch initial data for M15/M5/M1.")
                     return
                     
-                print(f"[{symbol}] Initialized data cache: {len(df_h1 or [])} H1, {len(df_m15)} M15, {len(df_m5)} M5, {len(df_m1)} M1 candles.")
-                app.state.market_data[symbol] = {"m1": df_m1, "m5": df_m5, "m15": df_m15, "h1": df_h1, "ltf": df_m1, "htf": df_m15}
+                print(f"[{symbol}] Initialized data cache: {len(df_d1 or [])} D1, {len(df_h4 or [])} H4, {len(df_h1 or [])} H1, {len(df_m15)} M15, {len(df_m5)} M5, {len(df_m1)} M1 candles.")
+                app.state.market_data[symbol] = {
+                    "m1": df_m1, "m5": df_m5, "m15": df_m15, "h1": df_h1, "h4": df_h4, "d1": df_d1,
+                    "ltf": df_m1, "htf": df_m15
+                }
             else:
                 df_m1 = app.state.market_data[symbol].get("m1", app.state.market_data[symbol].get("ltf"))
                 df_m5 = app.state.market_data[symbol].get("m5", [])
                 df_m15 = app.state.market_data[symbol].get("m15", app.state.market_data[symbol].get("htf"))
+                df_h1 = app.state.market_data[symbol].get("h1", [])
+                df_h4 = app.state.market_data[symbol].get("h4", [])
+                df_d1 = app.state.market_data[symbol].get("d1", [])
                 
                 # --- Update LTF (M1) ---
                 if df_m1:
@@ -231,7 +239,23 @@ async def run_smc_analysis(tick: dict):
                 last_m5_event = m5_events[-1]
                 m5_trend = "BULLISH" if "BULLISH" in last_m5_event['type'] else "BEARISH"
 
-            # Run SMC Engine on Macro (H1)
+            # Run SMC Engine on Macro HTF (D1, H4, H1)
+            df_d1 = app.state.market_data[symbol].get("d1", [])
+            engine_d1 = SMCEngine(df_d1) if df_d1 else None
+            d1_events = engine_d1.detect_bos_choch() if engine_d1 else []
+            d1_trend = ("BULLISH" if "BULLISH" in d1_events[-1]['type'] else "BEARISH") if d1_events else None
+
+            df_h4 = app.state.market_data[symbol].get("h4", [])
+            engine_h4 = SMCEngine(df_h4) if df_h4 else None
+            h4_events = engine_h4.detect_bos_choch() if engine_h4 else []
+            h4_trend = ("BULLISH" if "BULLISH" in h4_events[-1]['type'] else "BEARISH") if h4_events else None
+            h4_choch = None
+            if h4_events:
+                for ev in reversed(h4_events[-10:]):
+                    if "CHOCH" in ev.get('type', ''):
+                        h4_choch = ev['type']
+                        break
+
             df_h1 = app.state.market_data[symbol].get("h1", [])
             engine_h1 = SMCEngine(df_h1) if df_h1 else None
             h1_events = engine_h1.detect_bos_choch() if engine_h1 else []
@@ -246,6 +270,12 @@ async def run_smc_analysis(tick: dict):
             m15_fvgs = engine_m15.detect_fvg()
             m15_breakers = engine_m15.detect_breaker_blocks(m15_events)
             pd_zones = engine_m15.detect_premium_discount()
+            
+            # Detect Liquidity Pools (Asian Range, PDH/PDL, EQH/EQL)
+            liquidity_pools = engine_m15.detect_liquidity_pools(is_xau=("XAU" in symbol))
+            sweeps = engine_m15.detect_liquidity_sweeps(liquidity_pools=liquidity_pools)
+            if engine_m5:
+                sweeps = sweeps + engine_m5.detect_liquidity_sweeps(liquidity_pools=liquidity_pools)
             
             m15_trend = None
             if m15_events:
@@ -293,26 +323,30 @@ async def run_smc_analysis(tick: dict):
                 app.state.last_scan_log[symbol] = now_sec
                 active_c = len([t for t in trade_manager.tracked_trades if t.get('symbol') == symbol])
                 cb_status = "LOCKED" if not allowed else f"OK ({trade_manager.consecutive_losses}/3 SLs, {trade_manager.daily_pnl:.1f}R)"
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] [SCANNING] {symbol}: {tick_price:.2f} | H1: {h1_trend or 'N/A'} | M15: {m15_trend or 'N/A'} | M5: {m5_trend or 'N/A'} | Active: {active_c} | Circuit Breaker: {cb_status}")
+                h4_info = f"H4: {h4_trend or 'N/A'}" + (f" ({h4_choch})" if h4_choch else "")
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] [SCANNING] {symbol}: {tick_price:.2f} | D1: {d1_trend or 'N/A'} | {h4_info} | M15: {m15_trend or 'N/A'} | M5: {m5_trend or 'N/A'} | Active: {active_c} | Circuit Breaker: {cb_status}")
 
             # Check for Signals ONLY if we don't already have a PENDING or ACTIVE trade for this symbol
             signal = None
             if not trade_manager.has_active_trade(symbol):
                 if allowed:
-                    atr = engine_m1.calculate_atr(period=14)
-                    reversal_patterns = engine_m1.detect_reversal_patterns()
+                    atr = engine_m15.calculate_atr(period=14)
+                    reversal_patterns = engine_m15.detect_reversal_patterns()
                     
                     signal = await signal_generator.evaluate_confluence(
                         symbol=symbol,
                         current_price=tick_price,
-                        events=events,
+                        events=m15_events + (m5_events if m5_events else []),
                         obs=combined_obs,
                         fvgs=combined_fvgs,
                         sweeps=sweeps,
                         m15_trend=m15_trend,
                         m5_trend=m5_trend,
-                        htf_trend=m15_trend,
+                        htf_trend=h4_trend or h1_trend or m15_trend,
                         h1_trend=h1_trend,
+                        h4_trend=h4_trend,
+                        d1_trend=d1_trend,
+                        h4_choch=h4_choch,
                         snr_zones=snr_zones,
                         snd_zones=snd_zones,
                         pd_zones=pd_zones,
@@ -325,14 +359,16 @@ async def run_smc_analysis(tick: dict):
                         atr=atr,
                         reversal_patterns=reversal_patterns,
                         db=db,
-                        engine_ltf=engine_m1,
+                        engine_ltf=engine_m15,
+                        engine_htf=engine_h4 or engine_h1,
                         qm_patterns=combined_qms,
                         rbs_sbr=combined_rbs,
                         h1_obs=h1_obs,
                         h1_pd_zones=h1_pd,
                         crt_patterns=combined_crts,
                         adx_m15=adx_m15,
-                        adx_h1=adx_h1
+                        adx_h1=adx_h1,
+                        liquidity_pools=liquidity_pools
                     )
                     # Process and register new signal atomically
                     if signal and signal.get("status") not in ["SKIPPED", "REJECTED"]:

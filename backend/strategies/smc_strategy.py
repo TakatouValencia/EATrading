@@ -33,17 +33,23 @@ class SMCStrategy(BaseStrategy):
                 
         # Analisa H4
         h4_trend = None
+        h4_choch = None
         if len(df_h4) >= 50:
             h4_events = SMCEngine(df_h4).detect_bos_choch()
             if h4_events:
                 h4_trend = "BULLISH" if "BULLISH" in h4_events[-1]['type'] else "BEARISH"
+                for ev in reversed(h4_events[-10:]):
+                    if "CHOCH" in ev.get('type', ''):
+                        h4_choch = ev['type']
+                        break
                 
         # Analisa LTF M15
         engine_ltf = SMCEngine(df_ltf)
         events = engine_ltf.detect_bos_choch()
         fvgs = engine_ltf.detect_fvg()
         obs = engine_ltf.detect_order_blocks(events)
-        sweeps = engine_ltf.detect_liquidity_sweeps()
+        liquidity_pools = engine_ltf.detect_liquidity_pools(is_xau=("XAU" in symbol))
+        sweeps = engine_ltf.detect_liquidity_sweeps(liquidity_pools=liquidity_pools)
         snr_zones = engine_ltf.detect_support_resistance()
         snd_zones = engine_ltf.detect_supply_demand()
         pd_zones = engine_ltf.detect_premium_discount()
@@ -64,7 +70,10 @@ class SMCStrategy(BaseStrategy):
                 sweeps=sweeps,
                 m15_trend=htf_trend,
                 m5_trend=h1_trend,
-                htf_trend=htf_trend,
+                htf_trend=h4_trend or h1_trend or htf_trend,
+                h1_trend=h1_trend,
+                h4_trend=h4_trend,
+                h4_choch=h4_choch,
                 snr_zones=snr_zones,
                 snd_zones=snd_zones,
                 pd_zones=pd_zones,
@@ -74,7 +83,10 @@ class SMCStrategy(BaseStrategy):
                 amd_setups=amd_setups,
                 atr=atr,
                 reversal_patterns=reversal_patterns,
-                engine_ltf=engine_ltf
+                engine_ltf=engine_ltf,
+                engine_htf=engine_htf,
+                current_time_str=current_time,
+                liquidity_pools=liquidity_pools
             )
             
             # Check blacklist

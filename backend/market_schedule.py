@@ -64,13 +64,13 @@ def is_forex_market_open(dt: Optional[datetime] = None, symbol: str = "XAU/USD")
 
 def is_killzone_active(dt: Optional[datetime] = None) -> Tuple[bool, str]:
     """
-    Check if current UTC time falls within high-liquidity Institutional Killzones.
+    Check if current UTC/WIB time falls within high-probability Killzones for XAUUSD.
     
-    ICT/SMC High-Probability Killzones for Daily Intraday Trading:
-    - London Killzone: 07:00 - 10:30 UTC (Frankfurt/London liquidity injection)
-    - New York Killzone: 12:00 - 15:30 UTC (NY open & US economic releases)
+    Session Times (WIB = UTC+7):
+    - London Killzone: 14:00 - 17:00 WIB (07:00 - 10:00 UTC)
+    - New York Killzone: 19:30 - 22:30 WIB (12:30 - 15:30 UTC)
     
-    Outside these hours, market volatility is often noisy or erratic (Asian range accumulation / late NY drift).
+    Outside these hours, signals are strictly ignored.
     """
     utc_dt = get_utc_datetime(dt)
     market_open, open_reason = is_forex_market_open(utc_dt)
@@ -80,13 +80,18 @@ def is_killzone_active(dt: Optional[datetime] = None) -> Tuple[bool, str]:
     hour = utc_dt.hour
     minute = utc_dt.minute
     current_time_dec = hour + minute / 60.0
+    
+    # Calculate WIB time for logging/display
+    wib_hour = (hour + 7) % 24
+    wib_str = f"{wib_hour:02d}:{minute:02d} WIB ({hour:02d}:{minute:02d} UTC)"
 
-    # London Killzone: 07:30 - 10:30 UTC (Filtered after initial London open Judas swing)
-    if 7.5 <= current_time_dec <= 10.5:
-        return True, "London Killzone (High Liquidity)"
+    # London Killzone: 14:00 - 17:00 WIB (07:00 - 10:00 UTC)
+    if 7.0 <= current_time_dec <= 10.0:
+        return True, f"London Killzone (14:00 - 17:00 WIB) [{wib_str}]"
 
-    # New York Killzone: 12:30 - 15:30 UTC (Filtered after NY pre-market whipsaws)
+    # New York Killzone: 19:30 - 22:30 WIB (12:30 - 15:30 UTC)
     if 12.5 <= current_time_dec <= 15.5:
-        return True, "New York Killzone (High Liquidity)"
+        return True, f"New York Killzone (19:30 - 22:30 WIB) [{wib_str}]"
 
-    return False, f"Outside Killzone ({hour:02d}:{minute:02d} UTC - Trading paused for optimal daily liquidity)"
+    return False, f"Outside Killzone [{wib_str}] - Setup ignored (Only London 14:00-17:00 WIB & NY 19:30-22:30 WIB)"
+
