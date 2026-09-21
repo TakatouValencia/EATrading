@@ -137,19 +137,34 @@ class SMCEngine:
                     "mitigated": False
                 })
                 
-        # Relaxed mitigation/invalidation check: Only invalidate if price closes beyond the FVG boundary
-        # This allows the FVG to be recognized as a valid POI during a retest
+        # Mitigation/invalidation check: Invalidate if price closes beyond boundary or taps & reacts away
         for fvg in fvgs:
             idx = fvg['index']
+            tapped = False
             for j in range(idx + 1, len(self.data)):
-                if fvg['type'] == 'FVG_BULLISH' and self.data[j]['close'] < fvg['bottom']:
-                    fvg['mitigated'] = True
-                    break
-                elif fvg['type'] == 'FVG_BEARISH' and self.data[j]['close'] > fvg['top']:
-                    fvg['mitigated'] = True
-                    break
+                candle = self.data[j]
+                if fvg['type'] == 'FVG_BULLISH':
+                    if candle['close'] < fvg['bottom']:
+                        fvg['mitigated'] = True
+                        break
+                    if candle['low'] <= fvg['top'] and candle['high'] >= fvg['bottom']:
+                        tapped = True
+                    elif tapped and candle['close'] > fvg['top']:
+                        # Price entered FVG and subsequently reacted away strongly (mitigated/used)
+                        fvg['mitigated'] = True
+                        break
+                elif fvg['type'] == 'FVG_BEARISH':
+                    if candle['close'] > fvg['top']:
+                        fvg['mitigated'] = True
+                        break
+                    if candle['high'] >= fvg['bottom'] and candle['low'] <= fvg['top']:
+                        tapped = True
+                    elif tapped and candle['close'] < fvg['bottom']:
+                        # Price entered FVG and subsequently reacted away strongly (mitigated/used)
+                        fvg['mitigated'] = True
+                        break
                     
-        # Return valid (not completely invalidated) FVGs
+        # Return valid (unmitigated) FVGs
         return [f for f in fvgs if not f['mitigated']]
 
     def detect_order_blocks(self, structure_events: List[Dict]) -> List[Dict]:
@@ -252,19 +267,34 @@ class SMCEngine:
                             "index": ob_candle,
                             "mitigated": False
                         })
-        # Relaxed mitigation/invalidation check for Order Blocks
+        # Mitigation/invalidation check for Order Blocks: Invalidate if price closes beyond boundary or taps & reacts away
         for ob in obs:
             idx = ob['index']
+            tapped = False
             for j in range(idx + 1, len(self.data)):
-                # An OB is only considered fully mitigated/invalidated if price closes beyond it
-                if ob['type'] == 'OB_BULLISH' and self.data[j]['close'] < ob['bottom']:
-                    ob['mitigated'] = True
-                    break
-                elif ob['type'] == 'OB_BEARISH' and self.data[j]['close'] > ob['top']:
-                    ob['mitigated'] = True
-                    break
+                candle = self.data[j]
+                if ob['type'] == 'OB_BULLISH':
+                    if candle['close'] < ob['bottom']:
+                        ob['mitigated'] = True
+                        break
+                    if candle['low'] <= ob['top'] and candle['high'] >= ob['bottom']:
+                        tapped = True
+                    elif tapped and candle['close'] > ob['top']:
+                        # Price entered OB and subsequently reacted away strongly (mitigated/used)
+                        ob['mitigated'] = True
+                        break
+                elif ob['type'] == 'OB_BEARISH':
+                    if candle['close'] > ob['top']:
+                        ob['mitigated'] = True
+                        break
+                    if candle['high'] >= ob['bottom'] and candle['low'] <= ob['top']:
+                        tapped = True
+                    elif tapped and candle['close'] < ob['bottom']:
+                        # Price entered OB and subsequently reacted away strongly (mitigated/used)
+                        ob['mitigated'] = True
+                        break
                     
-        # Return valid (not completely invalidated) Order Blocks
+        # Return valid (unmitigated) Order Blocks
         return [ob for ob in obs if not ob['mitigated']]
 
     def detect_liquidity_pools(self, is_xau: bool = True) -> Dict:

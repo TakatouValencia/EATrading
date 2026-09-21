@@ -247,32 +247,18 @@ class TradeManager:
                 risk_dist = abs(entry - initial_sl) if abs(entry - initial_sl) > 0 else 0.0001
 
                 # -------------------------------------------------------------
-                # Multi-Stage Profit Banking:
-                # Stage 1: +1.0R / +50 pips -> Bank 30% lot & move SL to BE (+0.5 pip)
-                # Stage 2: +1.5R / TP1     -> Bank additional 30% lot
-                # Stage 3: Full TP2 Runner -> Remaining 40% lot
+                # Trailing Stop to Break-Even at +1.0R
                 # -------------------------------------------------------------
                 stage1_dist = max(1.0 * risk_dist, 5.0 * pip_unit if is_xau else 0.0005)
-                if favorable_move >= stage1_dist and not trade.get('stage1_taken', False):
-                    trade['stage1_taken'] = True
-                    locked1 = 0.30 * (favorable_move / risk_dist)
-                    trade['locked_pnl'] = trade.get('locked_pnl', 0.0) + locked1
+                if favorable_move >= stage1_dist and not trade.get('is_be', False):
                     new_sl = round(entry + (0.5 * pip_unit) if is_buy else entry - (0.5 * pip_unit), 2 if is_xau else 5)
                     trade['sl_price'] = new_sl
                     trade['sl'] = new_sl
                     trade['is_be'] = True
                     sl = new_sl
 
-                tp1_target = float(trade.get('tp1', entry + (1.5 * risk_dist if is_buy else -1.5 * risk_dist)))
-                tp1_dist = abs(tp1_target - entry)
-                if favorable_move >= tp1_dist and not trade.get('stage2_taken', False):
-                    trade['stage2_taken'] = True
-                    trade['partial_taken'] = True
-                    locked2 = 0.30 * (favorable_move / risk_dist)
-                    trade['locked_pnl'] = trade.get('locked_pnl', 0.0) + locked2
-
                 # -------------------------------------------------------------
-                # Check for TP2 (Full Runner) / SL
+                # Check for Target TP / SL
                 # -------------------------------------------------------------
                 won = False
                 lost = False
@@ -290,16 +276,10 @@ class TradeManager:
                         
                 if won or lost:
                     if won:
-                        runner_ratio = 0.40 if trade.get('stage2_taken', False) else (0.70 if trade.get('stage1_taken', False) else 1.0)
-                        runner_r = runner_ratio * (abs(tp - entry) / risk_dist)
-                        pnl = trade.get('locked_pnl', 0.0) + runner_r
+                        pnl = round(abs(tp - entry) / risk_dist, 2)
                         new_status = 'WIN'
                     else: # lost (hit SL / BE)
-                        if trade.get('locked_pnl', 0.0) > 0.0:
-                            new_status = 'WIN'
-                            pnl = trade.get('locked_pnl', 0.0)
-                            won = True # Counted as WIN because cash profit was locked!
-                        elif trade.get('is_be', False):
+                        if trade.get('is_be', False):
                             new_status = 'BREAK_EVEN'
                             pnl = 0.0
                         else:
@@ -318,7 +298,7 @@ class TradeManager:
                     trade['status'] = new_status
                     self._update_stats(won, pnl)
                     
-                    if new_status in ['WIN', 'LOSS', 'PARTIAL_WIN'] and 'poi_signature' in trade:
+                    if new_status in ['WIN', 'LOSS', 'PARTIAL_WIN', 'BREAK_EVEN'] and 'poi_signature' in trade:
                         try:
                             self.db.save_blacklisted_zone(
                                 symbol=trade['symbol'], 

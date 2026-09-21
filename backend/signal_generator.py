@@ -323,7 +323,8 @@ class SignalGenerator:
                 exec_type = "CONFIRMED"
                 entry_target = current_price
 
-            poi_sig = f"{symbol}_{poi_type}_{poi_bottom}_{poi_top}"
+            poi_obj_type = poi_obj.get('type', f"{poi_type}_{'BULLISH' if is_bullish else 'BEARISH'}")
+            poi_sig = f"{symbol}_{poi_obj_type}_{poi_bottom}_{poi_top}"
             reasons.append(f"Entry Zone: Unfilled {poi_type} ({poi_bottom:.2f} - {poi_top:.2f}) (+2)")
 
             # -------------------------------------------------------------
@@ -447,7 +448,7 @@ class SignalGenerator:
                 "entry": entry_target,
                 "entry_zone": f"{min(poi_bottom, poi_top):.2f} - {max(poi_bottom, poi_top):.2f} ({poi_type})",
                 "sl": sl_target,
-                "tp": tp2_target,
+                "tp": tp1_target,
                 "tp1": tp1_target,
                 "tp2": tp2_target,
                 "reasons": reasons,
@@ -455,7 +456,7 @@ class SignalGenerator:
                 "score": confluence_score,
                 "risk_multiplier": 1.0,
                 "poi_signature": poi_sig,
-                "rr_ratio": round(rr_tp2, 2),
+                "rr_ratio": round(rr_tp1, 2),
                 "rr_tp1": round(rr_tp1, 2),
                 "sweep_pool": pool_name,
                 "killzone": kz_reason
@@ -486,19 +487,17 @@ class SignalGenerator:
         decimal_places = 2 if is_xau or "JPY" in symbol else 5
         entry_val = round(best['entry'], decimal_places)
         sl_val = round(best['sl'], decimal_places)
-        tp1_val = round(best['tp1'], decimal_places)
-        tp2_val = round(best['tp2'], decimal_places)
+        tp_val = round(best['tp'], decimal_places)
 
         sl_pips = calculate_pips(symbol, entry_val, sl_val)
         lot_size = round(calculate_lot_size(acc_balance, base_risk_pct, sl_pips, symbol), 2)
 
-        tp1_pips = calculate_pips(symbol, entry_val, tp1_val)
-        tp2_pips = calculate_pips(symbol, entry_val, tp2_val)
+        tp_pips = calculate_pips(symbol, entry_val, tp_val)
 
         ui_badge = "[UI_BADGE:ENTRY ZONE ACTIVE] Harga di zona, siap eksekusi." if best['signal_type'] == "CONFIRMED" else "[UI_BADGE:PENDING LIMIT ORDER] Pasang pending limit, tunggu jemputan."
         reasons_list = [ui_badge] + best['reasons']
-        reasons_list.append(f"TP1 (+{tp1_pips:.0f}p): {tp1_val} (Amankan 50% Lot & SL ke BE) | TP2 (+{tp2_pips:.0f}p): {tp2_val} (Runner)")
-        reasons_list.append(f"SMC Grade: {best['grade']} (RRR TP1: 1:{best['rr_tp1']}, TP2: 1:{best['rr_ratio']})")
+        reasons_list.append(f"Target TP (+{tp_pips:.0f}p): {tp_val} (Disiplin Target Institusional)")
+        reasons_list.append(f"SMC Grade: {best['grade']} (RRR 1:{best['rr_ratio']})")
 
         signal = {
             "symbol": symbol,
@@ -508,10 +507,9 @@ class SignalGenerator:
             "entry": entry_val,
             "entry_zone": best['entry_zone'],
             "sl": sl_val,
-            "tp": tp2_val,
-            "tp1": tp1_val,
-            "tp2": tp2_val,
-            "partial_tp_pips": tp1_pips,
+            "tp": tp_val,
+            "tp1": tp_val,
+            "tp2": round(best.get('tp2', tp_val), decimal_places),
             "lot_size": lot_size,
             "reasons": reasons_list,
             "status": "PENDING",
@@ -519,12 +517,12 @@ class SignalGenerator:
             "atr": round(atr, 2),
             "poi_signature": best['poi_signature'],
             "rr_ratio": best['rr_ratio'],
-            "rr_tp1": best['rr_tp1'],
+            "rr_tp1": best['rr_ratio'],
             "sweep_pool": best['sweep_pool'],
             "killzone": best['killzone']
         }
 
-        print(f"\n{'='*60}\n[SMC GRADE A+ SETUP] {symbol} {signal['type']} ({signal['signal_type']})\nEntry: {signal['entry']} (Zone: {signal['entry_zone']}) | SL: {signal['sl']} (-{sl_pips:.0f}p)\nTP1: {signal['tp1']} (+{tp1_pips:.0f}p | 1:{best['rr_tp1']}R) | TP2: {signal['tp2']} (+{tp2_pips:.0f}p | 1:{best['rr_ratio']}R)\nSweep: {best['sweep_pool']} | Session: {best['killzone']}\n{'='*60}\n")
+        print(f"\n{'='*60}\n[SMC GRADE A+ SETUP] {symbol} {signal['type']} ({signal['signal_type']})\nEntry: {signal['entry']} (Zone: {signal['entry_zone']}) | SL: {signal['sl']} (-{sl_pips:.0f}p)\nTP: {signal['tp']} (+{tp_pips:.0f}p | 1:{best['rr_ratio']}R)\nSweep: {best['sweep_pool']} | Session: {best['killzone']}\n{'='*60}\n")
 
         self.active_signals[symbol] = signal
         self.cooldowns[symbol] = now_time + timedelta(minutes=self.cooldown_minutes)

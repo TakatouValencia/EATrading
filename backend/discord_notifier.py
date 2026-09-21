@@ -57,10 +57,8 @@ async def send_discord_alert(signal: dict):
     tp2_f = float(signal.get('tp2', tp_f))
     
     sl_pips = abs(entry_f - sl_f) / pip_unit if pip_unit > 0 else 0
-    tp1_pips = abs(tp1_f - entry_f) / pip_unit if pip_unit > 0 else 0
-    tp2_pips = abs(tp2_f - entry_f) / pip_unit if pip_unit > 0 else 0
-    rr_tp1 = tp1_pips / sl_pips if sl_pips > 0 else 2.0
-    rr_tp2 = tp2_pips / sl_pips if sl_pips > 0 else 3.5
+    tp_pips = abs(tp_f - entry_f) / pip_unit if pip_unit > 0 else 0
+    rr_tp = tp_pips / sl_pips if sl_pips > 0 else 2.0
     
     entry_zone = signal.get('entry_zone', f"{entry_f:.2f}")
     sweep_info = signal.get('sweep_pool', 'Institutional Liquidity Pool')
@@ -73,12 +71,11 @@ async def send_discord_alert(signal: dict):
         "fields": [
             {"name": "📊 Pair & Direction", "value": f"**{symbol}** | **{signal.get('type')}** ({signal.get('signal_type', 'CONFIRMED')})", "inline": True},
             {"name": "🌟 Setup Grade", "value": f"**Grade {signal.get('grade', 'A+')}** (100% Confluence)", "inline": True},
-            {"name": "⚖️ Risk : Reward (RRR)", "value": f"**1 : {rr_tp1:.1f}** (TP1) | **1 : {rr_tp2:.1f}** (TP2)", "inline": True},
+            {"name": "⚖️ Risk : Reward (RRR)", "value": f"**1 : {rr_tp:.1f}**", "inline": True},
             {"name": "🎯 Entry Trigger / Price", "value": f"**{entry_f:.2f}**", "inline": True},
             {"name": "📦 Entry Zone (POI)", "value": f"**{entry_zone}**", "inline": True},
             {"name": "🛑 Stop Loss (SL)", "value": f"**{sl_f:.2f}** (-{sl_pips:.0f} pips | Sweep Wick)", "inline": True},
-            {"name": "🔒 TP1 (Amankan 50% & BE)", "value": f"**{tp1_f:.2f}** (+{tp1_pips:.0f} pips | 1:{rr_tp1:.1f}R)", "inline": True},
-            {"name": "🚀 TP2 (Opposite HTF Liquidity)", "value": f"**{tp2_f:.2f}** (+{tp2_pips:.0f} pips | 1:{rr_tp2:.1f}R)", "inline": True},
+            {"name": "🎯 Take Profit (TP)", "value": f"**{tp_f:.2f}** (+{tp_pips:.0f} pips | 1:{rr_tp:.1f}R)", "inline": True},
             {"name": "💼 Lot Rekomendasi", "value": f"**{signal.get('lot_size', 0.01)} Lot** (Risiko 1%)", "inline": True},
         ],
         "footer": {
@@ -93,7 +90,7 @@ async def send_discord_alert(signal: dict):
         f"⚡ **Imbalance POI**: Entry di dalam area {entry_zone}",
         f"🔄 **LTF Confirmation**: CHoCH M5/M15 post-sweep terkonfirmasi searah reversal",
         f"⏱️ **Killzone Active**: {kz_info}",
-        f"🛡️ **Risk Parameter**: SL di luar sweep extreme wick + buffer 15-20 pips, RRR minimal 1:2 terpenuhi"
+        f"🛡️ **Risk Parameter**: SL di luar sweep extreme wick + buffer 15-20 pips, RRR minimal 1:1.5 terpenuhi"
     ]
     embed["fields"].append({
         "name": "🧠 Alasan Analisis Institusional",
@@ -101,10 +98,9 @@ async def send_discord_alert(signal: dict):
         "inline": False
     })
         
-    be_target = entry_f + (0.5 * pip_unit if "BUY" in signal.get('type', '') else -0.5 * pip_unit)
     embed["fields"].append({
         "name": "📋 Intraday Trade Execution Plan", 
-        "value": f"1. Masuk order di zona **{entry_zone}** (harga saat ini: **{entry_f:.2f}**).\n2. Saat harga menyentuh **TP1 ({tp1_f:.2f})**, tutup **50% lot** dan geser SL ke **Break-Even ({be_target:.2f})**.\n3. Biarkan sisa 50% lot mengejar **TP2 ({tp2_f:.2f})** pada Opposite HTF Liquidity tanpa risiko modal.", 
+        "value": f"1. Masuk order di zona **{entry_zone}** (harga saat ini: **{entry_f:.2f}**).\n2. Target TP di **{tp_f:.2f}** (+{tp_pips:.0f} pips).\n3. SL di **{sl_f:.2f}** (-{sl_pips:.0f} pips). Disiplin money management.", 
         "inline": False
     })
         
@@ -147,9 +143,11 @@ async def send_discord_trade_update(signal: dict, new_status: str, pnl: float):
         "description": f"The trade for {signal.get('symbol')} has hit its {result_text}." if new_status not in ["CANCELLED", "MISSED"] else f"The trade for {signal.get('symbol')} has been {result_text}.",
         "color": color,
         "fields": [
-            {"name": "Type", "value": f"**{signal.get('type')}**", "inline": True},
-            {"name": "Entry", "value": f"**{signal.get('entry')}**", "inline": True},
-            {"name": "PnL", "value": f"**{pnl}R**", "inline": True},
+            {"name": "Pair & Type", "value": f"**{signal.get('symbol')}** | **{signal.get('type')}**", "inline": True},
+            {"name": "Entry Price", "value": f"**{signal.get('entry', signal.get('entry_price', 0))}**", "inline": True},
+            {"name": "Target TP / SL", "value": f"**{signal.get('tp', signal.get('tp_price', '-'))}** / **{signal.get('sl', signal.get('sl_price', '-'))}**", "inline": True},
+            {"name": "Hasil Trade", "value": f"**{result_text}**", "inline": True},
+            {"name": "PnL Realized", "value": f"**{'+' if pnl > 0 else ''}{pnl:.2f}R**", "inline": True},
         ],
         "timestamp": datetime.utcnow().isoformat()
     }
