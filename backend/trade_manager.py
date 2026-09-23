@@ -8,6 +8,7 @@ class TradeManager:
         self.db = db
         self.tracked_trades = []
         self.on_trade_closed = on_trade_closed
+        self.on_be_triggered = None
         self.daily_pnl = 0.0
         self.consecutive_losses = 0
         self.daily_completed_trades = 0
@@ -116,17 +117,14 @@ class TradeManager:
         print(f"[DEBUG] Loaded tracked trades: {len(self.tracked_trades)}")
 
     def add_trade(self, signal: Dict):
-        # Instant execution on confirmation candle: Activate trade immediately (no missed order)
-        if signal.get('signal_type') in ['CONFIRMED', 'MARKET', 'INSTANT'] or signal.get('status') == 'PENDING':
-            signal['status'] = 'ACTIVE'
-            signal['entry_timestamp'] = str(self.current_time_str) if self.current_time_str else datetime.now().isoformat()
-            signal['partial_taken'] = False
-            signal['is_be'] = False
-            signal['initial_sl'] = signal.get('sl')
+        # Instant execution on confirmation candle: Activate trade immediately (no missed/cancelled order)
+        signal['status'] = 'ACTIVE'
+        signal['entry_timestamp'] = str(self.current_time_str) if self.current_time_str else datetime.now().isoformat()
+        signal['partial_taken'] = False
+        signal['is_be'] = False
+        signal['initial_sl'] = signal.get('sl')
             
         if signal not in self.tracked_trades:
-            signal['is_be'] = False
-            signal['initial_sl'] = signal.get('sl')
             self.tracked_trades.append(signal)
 
     def has_active_trade(self, symbol: str) -> bool:
@@ -144,19 +142,13 @@ class TradeManager:
         return False
 
     async def cancel_pending_trades(self, symbol: str):
-        """Cancel all PENDING trades for a symbol."""
+        """Cancel all PENDING trades for a symbol silently (no discord cancel spam)."""
         for trade in self.tracked_trades[:]:
             if trade['symbol'] == symbol and trade['status'] == 'PENDING':
                 trade['status'] = 'CANCELLED'
                 if trade.get('id'):
                     self.db.update_signal_status(trade['id'], 'CANCELLED')
                 self.tracked_trades.remove(trade)
-                if self.on_trade_closed:
-                    import asyncio
-                    if asyncio.iscoroutinefunction(self.on_trade_closed):
-                        await self.on_trade_closed(trade, 'CANCELLED', 0)
-                    else:
-                        self.on_trade_closed(trade, 'CANCELLED', 0)
 
     async def process_tick(self, tick: Dict):
         """Evaluate tracked trades against current market price."""
@@ -247,18 +239,38 @@ class TradeManager:
                 risk_dist = abs(entry - initial_sl) if abs(entry - initial_sl) > 0 else 0.0001
 
                 # -------------------------------------------------------------
-                # Trailing Stop to Break-Even at +1.0R
+                # Multi-Stage Risk Management & Profit Banking:
+                # Stage 1: +50 pips -> Trailing Stop moved to Break-Even (+0.5 pip)
+                # Stage 2: +70 pips -> Bank 50% lot profit & protect remainder
+                # Stage 3: Target TP (>120 - 250 pips) -> Full Institutional Winner
                 # -------------------------------------------------------------
-                stage1_dist = max(1.0 * risk_dist, 5.0 * pip_unit if is_xau else 0.0005)
-                if favorable_move >= stage1_dist and not trade.get('is_be', False):
+                be_trigger_dist = 5.0 * pip_unit if is_xau else 0.0005 # 50 pips
+                partial_dist = 7.0 * pip_unit if is_xau else 0.0007    # 70 pips
+
+                # Stage 1: Auto Break-Even Protection at +50 pips
+                if favorable_move >= be_trigger_dist and not trade.get('is_be', False):
                     new_sl = round(entry + (0.5 * pip_unit) if is_buy else entry - (0.5 * pip_unit), 2 if is_xau else 5)
                     trade['sl_price'] = new_sl
                     trade['sl'] = new_sl
                     trade['is_be'] = True
                     sl = new_sl
+                    print(f"[BE PROTECTION] {symbol} moved +{favorable_move/pip_unit:.0f}p. SL moved to Break-Even ({new_sl})")
+                    if self.on_be_triggered:
+                        import asyncio
+                        if asyncio.iscoroutinefunction(self.on_be_triggered):
+                            await self.on_be_triggered(trade, new_sl)
+                        else:
+                            self.on_be_triggered(trade, new_sl)
+
+                # Stage 2: Bank 50% Profit at +70 pips / 1.0R
+                if favorable_move >= partial_dist and not trade.get('partial_taken', False):
+                    trade['partial_taken'] = True
+                    locked_r = 0.5 * (favorable_move / risk_dist)
+                    trade['locked_pnl'] = locked_r
+                    print(f"[PARTIAL PROFIT (+70p)] {symbol} banked 50% lot (+{locked_r:.2f}R). Runner chasing Target TP.")
 
                 # -------------------------------------------------------------
-                # Check for Target TP / SL
+                # Stage 3: Check for Target TP / SL
                 # -------------------------------------------------------------
                 won = False
                 lost = False
@@ -276,10 +288,18 @@ class TradeManager:
                         
                 if won or lost:
                     if won:
-                        pnl = round(abs(tp - entry) / risk_dist, 2)
+                        if trade.get('partial_taken', False):
+                            runner_r = 0.5 * (abs(tp - entry) / risk_dist)
+                            pnl = round(trade.get('locked_pnl', 0.0) + runner_r, 2)
+                        else:
+                            pnl = round(abs(tp - entry) / risk_dist, 2)
                         new_status = 'WIN'
                     else: # lost (hit SL / BE)
-                        if trade.get('is_be', False):
+                        if trade.get('partial_taken', False):
+                            new_status = 'WIN'
+                            pnl = round(trade.get('locked_pnl', 0.0), 2)
+                            won = True # Counted as WIN because cash profit was secured!
+                        elif trade.get('is_be', False):
                             new_status = 'BREAK_EVEN'
                             pnl = 0.0
                         else:

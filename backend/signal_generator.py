@@ -361,77 +361,74 @@ class SignalGenerator:
                 return None
 
             # -------------------------------------------------------------
-            # RULE 6: Take Profit Target (TP2: 250 - 300 pips, TP1: 100 - 140 pips)
+            # RULE 6: Take Profit Target (Institutional HTF Liquidity >= 120 - 250 pips)
             # -------------------------------------------------------------
-            # TP1: 100 - 140 pips (or 1.5R+) to quickly bank profit & move SL to BE
-            min_tp1_dist = max(1.5 * risk_dist, (10.0 if is_xau else 0.0100))
-            max_tp1_dist = 14.0 if is_xau else 0.0140
-            
-            if is_bullish:
-                # TP1: Nearest opposing structure / unfilled FVG above entry
-                tp1_candidates = []
-                for s in (snr_zones or []):
-                    if s.get('type') == 'RESISTANCE' and entry_target + min_tp1_dist <= s['level'] <= entry_target + max_tp1_dist:
-                        tp1_candidates.append(s['level'])
-                for f in valid_fvgs:
-                    if f.get('type') == 'FVG_BEARISH' and entry_target + min_tp1_dist <= f['bottom'] <= entry_target + max_tp1_dist:
-                        tp1_candidates.append(f['bottom'])
-                for o in valid_obs:
-                    if o.get('type') == 'OB_BEARISH' and entry_target + min_tp1_dist <= o['bottom'] <= entry_target + max_tp1_dist:
-                        tp1_candidates.append(o['bottom'])
-                
-                tp1_target = sorted(tp1_candidates)[0] if tp1_candidates else round(entry_target + min(min_tp1_dist, max_tp1_dist), 2 if is_xau else 5)
+            cfg = settings_manager.load_settings()
+            min_tp_pips = float(cfg.get("min_tp_pips", 120.0))
+            max_tp_pips = float(cfg.get("max_tp_pips", 250.0))
 
-                # TP2: 250 - 300 pips ($25.0 - $30.0 on Gold, default 280 pips / $28.0)
-                tp2_candidates = []
+            min_tp_dist = (min_tp_pips * 0.10) if is_xau else (min_tp_pips * 0.0001)
+            max_tp_dist = (max_tp_pips * 0.10) if is_xau else (max_tp_pips * 0.0001)
+
+            tp_candidates = []
+            if is_bullish:
+                # 1. Major Liquidity Pools above entry (Asian High, PDH, EQH)
                 if liquidity_pools:
                     for p_key in ['asian_high', 'pdh']:
-                        if liquidity_pools.get(p_key) and entry_target + 25.0 <= liquidity_pools[p_key] <= entry_target + 30.0:
-                            tp2_candidates.append(liquidity_pools[p_key])
+                        if liquidity_pools.get(p_key) and entry_target + min_tp_dist <= liquidity_pools[p_key] <= entry_target + max_tp_dist:
+                            tp_candidates.append(liquidity_pools[p_key])
                     for eqh in liquidity_pools.get('eqh', []):
-                        if entry_target + 25.0 <= eqh['level'] <= entry_target + 30.0:
-                            tp2_candidates.append(eqh['level'])
+                        if entry_target + min_tp_dist <= eqh['level'] <= entry_target + max_tp_dist:
+                            tp_candidates.append(eqh['level'])
+                
+                # 2. HTF Unmitigated Bearish OB / FVG / Resistance in target range
+                for s in (snr_zones or []):
+                    if s.get('type') == 'RESISTANCE' and entry_target + min_tp_dist <= s['level'] <= entry_target + max_tp_dist:
+                        tp_candidates.append(s['level'])
+                for f in valid_fvgs:
+                    if f.get('type') == 'FVG_BEARISH' and entry_target + min_tp_dist <= f['bottom'] <= entry_target + max_tp_dist:
+                        tp_candidates.append(f['bottom'])
+                for o in valid_obs:
+                    if o.get('type') == 'OB_BEARISH' and entry_target + min_tp_dist <= o['bottom'] <= entry_target + max_tp_dist:
+                        tp_candidates.append(o['bottom'])
 
-                tp2_target = sorted(tp2_candidates)[0] if tp2_candidates else round(entry_target + (28.0 if is_xau else 0.0280), 2 if is_xau else 5)
+                # Default target: 160 pips ($16.0 on Gold) if no discrete POI found in range
+                default_tp = round(entry_target + (16.0 if is_xau else 0.0160), 2 if is_xau else 5)
+                tp_target = sorted(tp_candidates)[0] if tp_candidates else default_tp
 
             else:
-                # Bearish Dynamic TP
-                tp1_candidates = []
-                for s in (snr_zones or []):
-                    if s.get('type') == 'SUPPORT' and entry_target - max_tp1_dist <= s['level'] <= entry_target - min_tp1_dist:
-                        tp1_candidates.append(s['level'])
-                for f in valid_fvgs:
-                    if f.get('type') == 'FVG_BULLISH' and entry_target - max_tp1_dist <= f['top'] <= entry_target - min_tp1_dist:
-                        tp1_candidates.append(f['top'])
-                for o in valid_obs:
-                    if o.get('type') == 'OB_BULLISH' and entry_target - max_tp1_dist <= o['top'] <= entry_target - min_tp1_dist:
-                        tp1_candidates.append(o['top'])
-
-                tp1_target = sorted(tp1_candidates, reverse=True)[0] if tp1_candidates else round(entry_target - min(min_tp1_dist, max_tp1_dist), 2 if is_xau else 5)
-
-                # TP2: 250 - 300 pips ($25.0 - $30.0 on Gold, default 280 pips / $28.0)
-                tp2_candidates = []
+                # 1. Major Liquidity Pools below entry (Asian Low, PDL, EQL)
                 if liquidity_pools:
                     for p_key in ['asian_low', 'pdl']:
-                        if liquidity_pools.get(p_key) and entry_target - 30.0 <= liquidity_pools[p_key] <= entry_target - 25.0:
-                            tp2_candidates.append(liquidity_pools[p_key])
+                        if liquidity_pools.get(p_key) and entry_target - max_tp_dist <= liquidity_pools[p_key] <= entry_target - min_tp_dist:
+                            tp_candidates.append(liquidity_pools[p_key])
                     for eql in liquidity_pools.get('eql', []):
-                        if entry_target - 30.0 <= eql['level'] <= entry_target - 25.0:
-                            tp2_candidates.append(eql['level'])
+                        if entry_target - max_tp_dist <= eql['level'] <= entry_target - min_tp_dist:
+                            tp_candidates.append(eql['level'])
 
-                tp2_target = sorted(tp2_candidates, reverse=True)[0] if tp2_candidates else round(entry_target - (28.0 if is_xau else 0.0280), 2 if is_xau else 5)
+                # 2. HTF Unmitigated Bullish OB / FVG / Support in target range
+                for s in (snr_zones or []):
+                    if s.get('type') == 'SUPPORT' and entry_target - max_tp_dist <= s['level'] <= entry_target - min_tp_dist:
+                        tp_candidates.append(s['level'])
+                for f in valid_fvgs:
+                    if f.get('type') == 'FVG_BULLISH' and entry_target - max_tp_dist <= f['top'] <= entry_target - min_tp_dist:
+                        tp_candidates.append(f['top'])
+                for o in valid_obs:
+                    if o.get('type') == 'OB_BULLISH' and entry_target - max_tp_dist <= o['top'] <= entry_target - min_tp_dist:
+                        tp_candidates.append(o['top'])
+
+                # Default target: 160 pips ($16.0 on Gold) if no discrete POI found in range
+                default_tp = round(entry_target - (16.0 if is_xau else 0.0160), 2 if is_xau else 5)
+                tp_target = sorted(tp_candidates, reverse=True)[0] if tp_candidates else default_tp
 
             # -------------------------------------------------------------
             # RULE 7: Adaptive Risk to Reward (RRR >= 1.5) Enforced
             # -------------------------------------------------------------
-            tp1_dist = abs(tp1_target - entry_target)
-            tp2_dist = abs(tp2_target - entry_target)
-            
-            rr_tp1 = tp1_dist / risk_dist if risk_dist > 0 else 0
-            rr_tp2 = tp2_dist / risk_dist if risk_dist > 0 else 0
+            tp_dist = abs(tp_target - entry_target)
+            rr_ratio = tp_dist / risk_dist if risk_dist > 0 else 0
 
-            # Syarat: RRR ke TP1 minimal 1:1.5R (Amankan 50% Lot & SL ke BE)
-            if rr_tp1 < 1.45:  # Tolerate rounding
+            # Syarat: RRR minimal 1:1.5R (umumnya 1:2.0 - 1:4.0R)
+            if rr_ratio < 1.45:
                 return None
 
             # -------------------------------------------------------------
@@ -439,7 +436,7 @@ class SignalGenerator:
             # -------------------------------------------------------------
             setup_grade = "A+"
             reasons.append(f"Session Active: {kz_reason}")
-            reasons.append(f"Risk Management: Target TP (TP1: {tp1_dist/pip_unit:.0f}p / 1:{rr_tp1:.1f}R | TP2: {tp2_dist/pip_unit:.0f}p / 1:{rr_tp2:.1f}R)")
+            reasons.append(f"Risk Management: Target TP (+{tp_dist/pip_unit:.0f}p / 1:{rr_ratio:.1f}R)")
 
             return {
                 "symbol": symbol,
@@ -448,16 +445,16 @@ class SignalGenerator:
                 "entry": entry_target,
                 "entry_zone": f"{min(poi_bottom, poi_top):.2f} - {max(poi_bottom, poi_top):.2f} ({poi_type})",
                 "sl": sl_target,
-                "tp": tp1_target,
-                "tp1": tp1_target,
-                "tp2": tp2_target,
+                "tp": tp_target,
+                "tp1": tp_target,
+                "tp2": tp_target,
                 "reasons": reasons,
                 "grade": setup_grade,
                 "score": confluence_score,
                 "risk_multiplier": 1.0,
                 "poi_signature": poi_sig,
-                "rr_ratio": round(rr_tp1, 2),
-                "rr_tp1": round(rr_tp1, 2),
+                "rr_ratio": round(rr_ratio, 2),
+                "rr_tp1": round(rr_ratio, 2),
                 "sweep_pool": pool_name,
                 "killzone": kz_reason
             }
@@ -494,25 +491,26 @@ class SignalGenerator:
 
         tp_pips = calculate_pips(symbol, entry_val, tp_val)
 
-        ui_badge = "[UI_BADGE:ENTRY ZONE ACTIVE] Harga di zona, siap eksekusi." if best['signal_type'] == "CONFIRMED" else "[UI_BADGE:PENDING LIMIT ORDER] Pasang pending limit, tunggu jemputan."
+        ui_badge = "[UI_BADGE:ENTRY ZONE ACTIVE] Sinyal Terkonfirmasi. Siap Eksekusi Langsung."
         reasons_list = [ui_badge] + best['reasons']
-        reasons_list.append(f"Target TP (+{tp_pips:.0f}p): {tp_val} (Disiplin Target Institusional)")
+        reasons_list.append(f"Target TP (+{tp_pips:.0f}p): {tp_val} (HTF Institutional Liquidity)")
+        reasons_list.append("Auto Break-Even: Aktif di +70p / 1.0R (Proteksi Modal 100% Risk-Free)")
         reasons_list.append(f"SMC Grade: {best['grade']} (RRR 1:{best['rr_ratio']})")
 
         signal = {
             "symbol": symbol,
             "type": best['type'],
-            "signal_type": best['signal_type'],
+            "signal_type": "CONFIRMED",
             "timestamp": now_time.isoformat() if current_time_str else datetime.now().isoformat(),
             "entry": entry_val,
             "entry_zone": best['entry_zone'],
             "sl": sl_val,
             "tp": tp_val,
             "tp1": tp_val,
-            "tp2": round(best.get('tp2', tp_val), decimal_places),
+            "tp2": tp_val,
             "lot_size": lot_size,
             "reasons": reasons_list,
-            "status": "PENDING",
+            "status": "ACTIVE",
             "grade": best['grade'],
             "atr": round(atr, 2),
             "poi_signature": best['poi_signature'],

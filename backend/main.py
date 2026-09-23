@@ -18,7 +18,7 @@ from signal_generator import SignalGenerator
 from database import Database
 from trade_manager import TradeManager
 import settings_manager
-from discord_notifier import send_discord_alert, send_discord_trade_update, send_circuit_breaker_alert
+from discord_notifier import send_discord_alert, send_discord_trade_update, send_circuit_breaker_alert, send_discord_be_alert
 from market_schedule import is_forex_market_open
 
 app = FastAPI(title="Novaire EA SMC Engine")
@@ -69,10 +69,23 @@ async def handle_trade_closed(trade: dict, new_status: str, pnl: float):
     }
     await manager.broadcast(json.dumps(payload))
     # Notify Discord
-    if new_status in ["WIN", "LOSS", "PARTIAL_WIN", "MISSED", "BREAK_EVEN"]:
+    if new_status in ["WIN", "LOSS", "PARTIAL_WIN", "BREAK_EVEN"]:
         await send_discord_trade_update(trade, new_status, pnl)
 
 trade_manager.on_trade_closed = handle_trade_closed
+
+async def handle_be_triggered(trade: dict, new_sl: float):
+    print(f"[EVENT] Break-Even triggered for {trade.get('symbol')} at SL: {new_sl}")
+    payload = {
+        "type": "BREAK_EVEN_TRIGGERED",
+        "trade": trade,
+        "new_sl": new_sl,
+        "timestamp": datetime.now().isoformat()
+    }
+    await manager.broadcast(json.dumps(payload))
+    await send_discord_be_alert(trade, new_sl)
+
+trade_manager.on_be_triggered = handle_be_triggered
 
 # Background task for SMC Engine loop
 async def run_smc_analysis(tick: dict):

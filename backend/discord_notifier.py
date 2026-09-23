@@ -100,7 +100,7 @@ async def send_discord_alert(signal: dict):
         
     embed["fields"].append({
         "name": "📋 Intraday Trade Execution Plan", 
-        "value": f"1. Masuk order di zona **{entry_zone}** (harga saat ini: **{entry_f:.2f}**).\n2. Target TP di **{tp_f:.2f}** (+{tp_pips:.0f} pips).\n3. SL di **{sl_f:.2f}** (-{sl_pips:.0f} pips). Disiplin money management.", 
+        "value": f"1. Masuk order langsung di zona **{entry_zone}** (harga saat ini: **{entry_f:.2f}**).\n2. Target TP di **{tp_f:.2f}** (+{tp_pips:.0f} pips).\n3. Proteksi Modal: Begitu floating **+70 pips**, SL otomatis digeser ke **Break-Even**.\n4. Disiplin SL di **{sl_f:.2f}** (-{sl_pips:.0f} pips).", 
         "inline": False
     })
         
@@ -113,10 +113,45 @@ async def send_discord_alert(signal: dict):
     loop = asyncio.get_event_loop()
     loop.run_in_executor(None, _send_webhook, payload)
 
+async def send_discord_be_alert(trade: dict, new_sl: float):
+    if not DISCORD_WEBHOOK_URL:
+        return
+    symbol = trade.get('symbol', 'UNKNOWN')
+    entry_val = float(trade.get('entry', trade.get('entry_price', 0.0)))
+    tp_val = float(trade.get('tp', trade.get('tp_price', 0.0)))
+    
+    embed = {
+        "title": f"🛡️ [BREAK-EVEN ACTIVE] {symbol} Posisi Aman (100% Risk Free) 🛡️",
+        "description": f"Trade {symbol} telah running profit **+70 pips / +1.0R**! Stop Loss otomatis dimajukan ke Break-Even.",
+        "color": 0x3B82F6,
+        "fields": [
+            {"name": "Pair & Type", "value": f"**{symbol}** | **{trade.get('type')}**", "inline": True},
+            {"name": "Entry Price", "value": f"**{entry_val:.2f}**", "inline": True},
+            {"name": "Stop Loss Baru (BE)", "value": f"**{new_sl:.2f}** (0 Loss)", "inline": True},
+            {"name": "Target TP", "value": f"**{tp_val:.2f}**", "inline": True},
+            {"name": "Status Risiko", "value": "**100% Bebas Risiko Modal**", "inline": True},
+        ],
+        "footer": {
+            "text": "Novaire EA • Dynamic Risk-Free Trailing System"
+        },
+        "timestamp": datetime.utcnow().isoformat()
+    }
+    payload = {
+        "username": "Novaire EA",
+        "content": "🛡️ @everyone Posisi kini aman! Stop Loss telah dipindahkan ke Break-Even.",
+        "embeds": [embed]
+    }
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(None, _send_webhook, payload)
+
 async def send_discord_trade_update(signal: dict, new_status: str, pnl: float):
     if not DISCORD_WEBHOOK_URL:
         return
         
+    # Suppress cancel alerts completely
+    if new_status in ["CANCELLED", "MISSED"]:
+        return
+
     if new_status == "WIN":
         color = 0x10B981
         status_icon = "✅"
@@ -125,14 +160,6 @@ async def send_discord_trade_update(signal: dict, new_status: str, pnl: float):
         color = 0x3B82F6
         status_icon = "🛡️"
         result_text = "Break-Even Protection (0 Loss) 🛡️"
-    elif new_status == "CANCELLED":
-        color = 0x6B7280
-        status_icon = "🗑️"
-        result_text = "Cancelled / Expired 🗑️"
-    elif new_status == "MISSED":
-        color = 0x6B7280
-        status_icon = "🏃💨"
-        result_text = "Missed (Hit TP Before Entry) 🏃💨"
     else:
         color = 0xF43F5E
         status_icon = "🛑"
@@ -140,7 +167,7 @@ async def send_discord_trade_update(signal: dict, new_status: str, pnl: float):
     
     embed = {
         "title": f"{status_icon} Trade Closed: {signal.get('symbol')} {new_status} {status_icon}",
-        "description": f"The trade for {signal.get('symbol')} has hit its {result_text}." if new_status not in ["CANCELLED", "MISSED"] else f"The trade for {signal.get('symbol')} has been {result_text}.",
+        "description": f"The trade for {signal.get('symbol')} has hit its {result_text}.",
         "color": color,
         "fields": [
             {"name": "Pair & Type", "value": f"**{signal.get('symbol')}** | **{signal.get('type')}**", "inline": True},
