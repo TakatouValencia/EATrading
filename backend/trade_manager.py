@@ -240,22 +240,22 @@ class TradeManager:
 
                 # -------------------------------------------------------------
                 # Multi-Stage Risk Management & Profit Banking:
-                # Stage 1: +30 pips ($3.00 on Gold) -> Trailing Stop moved to Break-Even (+0.5 pip)
-                # Stage 2: +50 pips ($5.00 on Gold) -> Bank 50% lot profit & lock +15p buffer
-                # Stage 3: Target TP (100 pips) -> Full Institutional Runner
+                # Stage 1: +65 pips ($6.50 on Gold) -> Trailing Stop moved to Break-Even (+1.0 pip) [Ample Breathing Room]
+                # Stage 2: +75 pips ($7.50 on Gold) -> Bank 50% lot profit & lock +20p buffer
+                # Stage 3: Target TP (150 - 220 pips) -> Full HTF Institutional Swing Runner
                 # -------------------------------------------------------------
-                be_trigger_dist = 30.0 * pip_unit if is_xau else 0.0030 # 30 pips ($3.00 on Gold)
-                partial_dist = 50.0 * pip_unit if is_xau else 0.0050    # 50 pips ($5.00 on Gold)
+                be_trigger_dist = 65.0 * pip_unit if is_xau else 0.0065 # 65 pips ($6.50 on Gold) - breathing room
+                partial_dist = 75.0 * pip_unit if is_xau else 0.0075    # 75 pips ($7.50 on Gold) - first structural bank
 
-                # Stage 1: Auto Break-Even Protection at +30 pips
+                # Stage 1: Auto Break-Even Protection at +65 pips
                 if favorable_move >= be_trigger_dist and not trade.get('is_be', False):
 
-                    new_sl = round(entry + (0.5 * pip_unit) if is_buy else entry - (0.5 * pip_unit), 2 if is_xau else 5)
+                    new_sl = round(entry + (1.0 * pip_unit) if is_buy else entry - (1.0 * pip_unit), 2 if is_xau else 5)
                     trade['sl_price'] = new_sl
                     trade['sl'] = new_sl
                     trade['is_be'] = True
                     sl = new_sl
-                    print(f"[BE PROTECTION] {symbol} moved +{favorable_move/pip_unit:.0f}p. SL moved to Break-Even ({new_sl})")
+                    print(f"[BE PROTECTION (+65p)] {symbol} moved +{favorable_move/pip_unit:.0f}p. SL moved to Break-Even ({new_sl})")
                     if self.on_be_triggered:
                         import asyncio
                         if asyncio.iscoroutinefunction(self.on_be_triggered):
@@ -263,16 +263,16 @@ class TradeManager:
                         else:
                             self.on_be_triggered(trade, new_sl)
 
-                # Stage 2: Bank 50% Profit at +50 pips / TP1
+                # Stage 2: Bank 50% Profit at +75 pips / TP1
                 if favorable_move >= partial_dist and not trade.get('partial_taken', False):
                     trade['partial_taken'] = True
                     locked_r = 0.5 * (favorable_move / risk_dist)
                     trade['locked_pnl'] = locked_r
-                    new_sl = round(entry + (1.5 * pip_unit) if is_buy else entry - (1.5 * pip_unit), 2 if is_xau else 5)
+                    new_sl = round(entry + (2.0 * pip_unit) if is_buy else entry - (2.0 * pip_unit), 2 if is_xau else 5)
                     trade['sl_price'] = new_sl
                     trade['sl'] = new_sl
                     sl = new_sl
-                    print(f"[PARTIAL PROFIT (+50p)] {symbol} banked 50% lot (+{locked_r:.2f}R). SL trailed to +15p. Runner chasing 100p TP.")
+                    print(f"[PARTIAL PROFIT (+75p)] {symbol} banked 50% lot (+{locked_r:.2f}R). SL trailed to +20p. Runner chasing 150-220p TP.")
 
                 # -------------------------------------------------------------
                 # Stage 3: Check for Target TP / SL

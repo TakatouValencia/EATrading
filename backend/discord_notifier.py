@@ -77,8 +77,8 @@ async def send_discord_alert(signal: dict):
             {"name": "🎯 Entry Trigger / Price", "value": f"**{entry_f:.2f}**", "inline": True},
             {"name": "📦 Entry Zone (POI)", "value": f"**{entry_zone}**", "inline": True},
             {"name": "🛑 Stop Loss (SL)", "value": f"**{sl_f:.2f}** (-{sl_pips:.0f} pips | POI Buffer)", "inline": True},
-            {"name": "🎯 Take Profit 1 (TP1)", "value": f"**{tp1_f:.2f}** (+{tp1_pips:.0f}p | Kunci 50-70%)", "inline": True},
-            {"name": "🎯 Take Profit 2 (TP2)", "value": f"**{tp2_f:.2f}** (+{tp2_pips:.0f}p | Full Runner)", "inline": True},
+            {"name": "🎯 Take Profit 1 (TP1)", "value": f"**{tp1_f:.2f}** (+{tp1_pips:.0f}p | Kunci 50%)", "inline": True},
+            {"name": "🎯 Take Profit 2 (TP2)", "value": f"**{tp2_f:.2f}** (+{tp2_pips:.0f}p | HTF Swing Runner)", "inline": True},
             {"name": "💼 Lot Rekomendasi", "value": f"**{signal.get('lot_size', 0.01)} Lot** (Risiko 1%)", "inline": True},
         ],
         "footer": {
@@ -90,10 +90,10 @@ async def send_discord_alert(signal: dict):
     # Detailed Analysis Reason breakdown
     analysis_points = [
         f"🎯 **Setup Pattern**: {sweep_info}",
-        f"⚡ **Imbalance POI**: Entry di dalam area {entry_zone}",
-        f"🔄 **LTF Confirmation**: Shift struktur M5/M15 terkonfirmasi searah target",
-        f"⏱️ **Killzone Active**: {kz_info}",
-        f"🛡️ **Risk Parameter**: SL di luar POI + buffer, RRR minimal 1:1.8 terpenuhi"
+        f"⚡ **Imbalance POI**: Entry presisi di batas area {entry_zone}",
+        f"🔄 **HTF Flow Alignment**: Target likuiditas HTF (H1/H4/Daily) terkonfirmasi",
+        f"⏱️ **Session Active**: {kz_info}",
+        f"🛡️ **Risk Parameter**: SL di luar POI + buffer, RRR minimal 1:2.0 terpenuhi"
     ]
     embed["fields"].append({
         "name": "🧠 Alasan Analisis Institusional",
@@ -103,7 +103,7 @@ async def send_discord_alert(signal: dict):
         
     embed["fields"].append({
         "name": "📋 Intraday Trade Execution Plan", 
-        "value": f"1. Masuk order langsung di zona **{entry_zone}** (harga saat ini: **{entry_f:.2f}**).\n2. **TP1 di {tp1_f:.2f} (+{tp1_pips:.0f}p)**: Kunci 50%-70% lot profit & amankan modal.\n3. **TP2 di {tp2_f:.2f} (+{tp2_pips:.0f}p)**: Biarkan sisa lot berlari hingga target likuiditas.\n4. **Proteksi Modal**: Begitu floating **+30 pips**, SL otomatis digeser ke **Break-Even** (0 Risiko).\n5. Disiplin SL di **{sl_f:.2f}** (-{sl_pips:.0f} pips).", 
+        "value": f"1. Masuk order presisi di zona **{entry_zone}** (harga konfirmasi: **{entry_f:.2f}**).\n2. **TP1 di {tp1_f:.2f} (+{tp1_pips:.0f}p)**: Kunci 50% lot profit & amankan modal.\n3. **TP2 di {tp2_f:.2f} (+{tp2_pips:.0f}p)**: Runner penuh menuju target likuiditas HTF (150-220p).\n4. **Ruang Napas & BE**: Begitu floating **+65 pips**, SL digeser ke **Break-Even**.\n5. Disiplin SL di **{sl_f:.2f}** (-{sl_pips:.0f} pips).", 
         "inline": False
     })
 

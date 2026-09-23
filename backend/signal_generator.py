@@ -301,7 +301,8 @@ class SignalGenerator:
                 valid_pois.sort(key=lambda x: abs(current_price - x[2]))
                 poi_type, poi_obj, poi_top, poi_bottom = valid_pois[0]
                 exec_type = "CONFIRMED"
-                entry_target = current_price
+                # Refined Entry: Optimal entry at POI boundary (no chasing high/low wicks)
+                entry_target = round(min(current_price, poi_top + 0.4), 2 if is_xau else 5)
 
             else:
                 # Bearish: Current candle tapped into or is inside the POI
@@ -325,18 +326,19 @@ class SignalGenerator:
                 valid_pois.sort(key=lambda x: abs(current_price - x[3]))
                 poi_type, poi_obj, poi_top, poi_bottom = valid_pois[0]
                 exec_type = "CONFIRMED"
-                entry_target = current_price
+                # Refined Entry: Optimal entry at POI boundary
+                entry_target = round(max(current_price, poi_bottom - 0.4), 2 if is_xau else 5)
 
             poi_obj_type = poi_obj.get('type', f"{poi_type}_{'BULLISH' if is_bullish else 'BEARISH'}")
             poi_sig = f"{symbol}_{poi_obj_type}_{poi_bottom}_{poi_top}"
             reasons.append(f"Entry Zone: Unfilled {poi_type} ({poi_bottom:.2f} - {poi_top:.2f}) Tapped & Rejected (+2)")
 
             # -------------------------------------------------------------
-            # RULE 5: Stop Loss (POI Extreme + Buffer, Floor 35p, Cap 55p)
+            # RULE 5: Stop Loss (POI Extreme + Buffer, Floor 30p, Cap 45p)
             # -------------------------------------------------------------
-            buffer_pips = 1.5 if is_xau else 0.0015 # 15 pips ($1.50 on Gold)
-            min_sl_dist = 3.5 if is_xau else 0.0035 # Minimum SL floor 35 pips ($3.50)
-            max_sl_dist = 5.5 if is_xau else 0.0055 # Maximum SL cap 55 pips ($5.50)
+            buffer_pips = 1.2 if is_xau else 0.0012 # 12 pips ($1.20 on Gold)
+            min_sl_dist = 3.0 if is_xau else 0.0030 # Minimum SL floor 30 pips ($3.00)
+            max_sl_dist = 4.5 if is_xau else 0.0045 # Maximum SL cap 45 pips ($4.50)
             
             if is_bullish:
                 ref_low = matched_sweep.get('sweep_low', poi_bottom) if matched_sweep else poi_bottom
@@ -365,19 +367,19 @@ class SignalGenerator:
                 return None
 
             # -------------------------------------------------------------
-            # RULE 6: Take Profit Targets (TP1: +50p Profit Banking, TP2: +100p Runner)
+            # RULE 6: Take Profit Targets (TP1: +75p Banking, TP2: 150-220p HTF Target)
             # -------------------------------------------------------------
-            default_tp1_dist = 5.0 if is_xau else 0.0050 # 50 pips ($5.00) - 60%+ realistic hit rate
-            default_tp2_dist = 10.0 if is_xau else 0.0100 # 100 pips ($10.00) - institutional runner target
+            default_tp1_dist = 7.5 if is_xau else 0.0075 # 75 pips ($7.50) - First major structural bank
+            default_tp2_dist = 18.0 if is_xau else 0.0180 # 180 pips ($18.00) - True HTF Swing Expansion
 
             tp_candidates = []
             if is_bullish:
                 if liquidity_pools:
                     for p_key in ['asian_high', 'pdh']:
-                        if liquidity_pools.get(p_key) and entry_target + 8.5 <= liquidity_pools[p_key] <= entry_target + 11.5:
+                        if liquidity_pools.get(p_key) and entry_target + 12.0 <= liquidity_pools[p_key] <= entry_target + 26.0:
                             tp_candidates.append(liquidity_pools[p_key])
                     for eqh in liquidity_pools.get('eqh', []):
-                        if entry_target + 8.5 <= eqh['level'] <= entry_target + 11.5:
+                        if entry_target + 12.0 <= eqh['level'] <= entry_target + 26.0:
                             tp_candidates.append(eqh['level'])
 
                 tp1_target = round(entry_target + default_tp1_dist, 2 if is_xau else 5)
@@ -387,10 +389,10 @@ class SignalGenerator:
             else:
                 if liquidity_pools:
                     for p_key in ['asian_low', 'pdl']:
-                        if liquidity_pools.get(p_key) and entry_target - 11.5 <= liquidity_pools[p_key] <= entry_target - 8.5:
+                        if liquidity_pools.get(p_key) and entry_target - 26.0 <= liquidity_pools[p_key] <= entry_target - 12.0:
                             tp_candidates.append(liquidity_pools[p_key])
                     for eql in liquidity_pools.get('eql', []):
-                        if entry_target - 11.5 <= eql['level'] <= entry_target - 8.5:
+                        if entry_target - 26.0 <= eql['level'] <= entry_target - 12.0:
                             tp_candidates.append(eql['level'])
 
                 tp1_target = round(entry_target - default_tp1_dist, 2 if is_xau else 5)
@@ -398,7 +400,7 @@ class SignalGenerator:
                 tp_target = tp2_target
 
             # -------------------------------------------------------------
-            # RULE 7: Adaptive Risk to Reward (RRR >= 1.8) Enforced
+            # RULE 7: Adaptive Risk to Reward (RRR >= 2.0) Enforced
             # -------------------------------------------------------------
             tp_dist = abs(tp_target - entry_target)
             rr_ratio = tp_dist / risk_dist if risk_dist > 0 else 0
@@ -476,7 +478,7 @@ class SignalGenerator:
         reasons_list = [ui_badge] + best['reasons']
         reasons_list.append(f"Target TP1 (+{tp1_pips:.0f}p): {tp1_val} (Kunci Profit 50-70%)")
         reasons_list.append(f"Target TP2 (+{tp2_pips:.0f}p): {tp2_val} (Full Runner HTF Liquidity)")
-        reasons_list.append("Auto Break-Even: Aktif di +30p (Proteksi Modal 100% Risk-Free)")
+        reasons_list.append("Auto Break-Even: Aktif di +65p (Memberi Ruang Napas Intraday Gold)")
         reasons_list.append(f"SMC Grade: {best['grade']} (RRR TP2 1:{best['rr_ratio']})")
 
         signal = {
