@@ -334,11 +334,11 @@ class SignalGenerator:
             reasons.append(f"Entry Zone: Unfilled {poi_type} ({poi_bottom:.2f} - {poi_top:.2f}) Tapped & Rejected (+2)")
 
             # -------------------------------------------------------------
-            # RULE 5: Stop Loss (POI Extreme + Buffer, Floor 30p, Cap 45p)
+            # RULE 5: Stop Loss (POI Extreme + Buffer, Floor 50p, Cap 70p)
             # -------------------------------------------------------------
-            buffer_pips = 1.2 if is_xau else 0.0012 # 12 pips ($1.20 on Gold)
-            min_sl_dist = 3.0 if is_xau else 0.0030 # Minimum SL floor 30 pips ($3.00)
-            max_sl_dist = 4.5 if is_xau else 0.0045 # Maximum SL cap 45 pips ($4.50)
+            buffer_pips = 1.8 if is_xau else 0.0018 # 18 pips ($1.80 on Gold buffer)
+            min_sl_dist = 5.0 if is_xau else 0.0050 # Minimum SL floor 50 pips ($5.00)
+            max_sl_dist = 7.0 if is_xau else 0.0070 # Maximum SL cap 70 pips ($7.00)
             
             if is_bullish:
                 ref_low = matched_sweep.get('sweep_low', poi_bottom) if matched_sweep else poi_bottom
