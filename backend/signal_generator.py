@@ -361,11 +361,11 @@ class SignalGenerator:
                 return None
 
             # -------------------------------------------------------------
-            # RULE 6: Take Profit Target (Institutional HTF Liquidity >= 120 - 250 pips)
+            # RULE 6: Take Profit Target (Institutional HTF Liquidity >= 100 - 180 pips)
             # -------------------------------------------------------------
             cfg = settings_manager.load_settings()
-            min_tp_pips = float(cfg.get("min_tp_pips", 120.0))
-            max_tp_pips = float(cfg.get("max_tp_pips", 250.0))
+            min_tp_pips = float(cfg.get("min_tp_pips", 100.0))
+            max_tp_pips = float(cfg.get("max_tp_pips", 180.0))
 
             min_tp_dist = (min_tp_pips * 0.10) if is_xau else (min_tp_pips * 0.0001)
             max_tp_dist = (max_tp_pips * 0.10) if is_xau else (max_tp_pips * 0.0001)
@@ -392,8 +392,8 @@ class SignalGenerator:
                     if o.get('type') == 'OB_BEARISH' and entry_target + min_tp_dist <= o['bottom'] <= entry_target + max_tp_dist:
                         tp_candidates.append(o['bottom'])
 
-                # Default target: 160 pips ($16.0 on Gold) if no discrete POI found in range
-                default_tp = round(entry_target + (16.0 if is_xau else 0.0160), 2 if is_xau else 5)
+                # Default target: 105 pips ($10.50 on Gold) - strictly > 100 pips
+                default_tp = round(entry_target + (10.5 if is_xau else 0.0105), 2 if is_xau else 5)
                 tp_target = sorted(tp_candidates)[0] if tp_candidates else default_tp
 
             else:
@@ -417,8 +417,8 @@ class SignalGenerator:
                     if o.get('type') == 'OB_BULLISH' and entry_target - max_tp_dist <= o['top'] <= entry_target - min_tp_dist:
                         tp_candidates.append(o['top'])
 
-                # Default target: 160 pips ($16.0 on Gold) if no discrete POI found in range
-                default_tp = round(entry_target - (16.0 if is_xau else 0.0160), 2 if is_xau else 5)
+                # Default target: 105 pips ($10.50 on Gold) - strictly > 100 pips
+                default_tp = round(entry_target - (10.5 if is_xau else 0.0105), 2 if is_xau else 5)
                 tp_target = sorted(tp_candidates, reverse=True)[0] if tp_candidates else default_tp
 
             # -------------------------------------------------------------

@@ -157,6 +157,7 @@ async def run_2month_backtest():
         elif status == 'LOSS':
             outcome_detail = "SL_HIT"
 
+        mfe_pips = abs(float(trade.get('mfe_price', entry_val)) - entry_val) / (0.10 if "XAU" in trade.get('symbol', '') else 0.0001)
         stats["trades"].append({
             "timestamp": trade.get('timestamp', '')[:16],
             "type": trade.get('type', ''),
@@ -167,6 +168,7 @@ async def run_2month_backtest():
             "sl_pips": sl_pips,
             "tp1_pips": tp1_pips,
             "tp2_pips": tp2_pips,
+            "mfe_pips": round(mfe_pips, 1),
             "status": status,
             "outcome": outcome_detail,
             "pnl": round(pnl, 2),
@@ -416,7 +418,7 @@ DAFTAR TRANSAKSI LENGKAP:
 ======================================================================
 """
     for idx_t, t in enumerate(stats['trades'], 1):
-        report += f"{idx_t:>2}. [{t['timestamp']}] {t['type']:<4} @ {t['entry']:.2f} | SL: {t['sl']:.2f} (-{t['sl_pips']:.1f}p) | TP1: {t['tp1']:.2f} (+{t['tp1_pips']:.1f}p) | TP2: {t['tp2']:.2f} (+{t['tp2_pips']:.1f}p) | Status: {t['outcome']:<18} | PnL: {t['pnl']:+5.2f}R | Sweep: {t['sweep_pool']}\n"
+        report += f"{idx_t:>2}. [{t['timestamp']}] {t['type']:<4} @ {t['entry']:.2f} | SL: {t['sl']:.2f} (-{t['sl_pips']:.1f}p) | TP: {t['tp1']:.2f} (+{t['tp1_pips']:.1f}p) | Max Profit (MFE): +{t.get('mfe_pips', 0):.1f}p | Status: {t['outcome']:<18} | PnL: {t['pnl']:+5.2f}R\n"
 
     print(report)
 

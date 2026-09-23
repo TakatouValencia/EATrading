@@ -13,48 +13,44 @@ Eksekusi TP            : TP1 (Kunci 50% Lot & SL -> BE) + TP2 (Runner HTF Liquid
 ----------------------------------------------------------------------
 RINGKASAN HASIL EKSEKUSI:
 ----------------------------------------------------------------------
-Total Setup Selesai    : 23 Trade
-- Total Take Profit    : 19 Trade (WIN)
-    * TP2 Full Runner  : 2 Trade (Mencapai target runner maksimal)
-    * TP1 Secured + BE : 17 Trade (Kunci profit TP1, runner ditutup di BE)
-- Total Stop Loss (SL) : 1 Trade (LOSS)
-- Total Break-Even (BE): 3 Trade (0 Loss, terlindungi BE sebelum TP1)
+Total Setup Selesai    : 15 Trade
+- Total Take Profit    : 4 Trade (WIN)
+    * TP2 Full Runner  : 4 Trade (Mencapai target runner maksimal)
+    * TP1 Secured + BE : 0 Trade (Kunci profit TP1, runner ditutup di BE)
+- Total Stop Loss (SL) : 9 Trade (LOSS)
+- Total Break-Even (BE): 2 Trade (0 Loss, terlindungi BE sebelum TP1)
 - Cancelled / Expired  : 0 Order
 - Missed Order         : 0 Order
 ----------------------------------------------------------------------
 METRIK PERFORMA & WIN RATE:
 ----------------------------------------------------------------------
-Win Rate (Decisive)    : 95.00% (WIN vs LOSS)
-Win Rate (Total Setup) : 82.61% (WIN / Total Selesai)
-Total Net Profit       : +7.11 R
-Gross Profit           : +8.11 R
-Gross Loss             : -1.00 R
-Profit Factor          : 8.11
-Max Drawdown           : 1.00 R
+Win Rate (Decisive)    : 30.77% (WIN vs LOSS)
+Win Rate (Total Setup) : 26.67% (WIN / Total Selesai)
+Total Net Profit       : +0.29 R
+Gross Profit           : +9.29 R
+Gross Loss             : -9.00 R
+Profit Factor          : 1.03
+Max Drawdown           : 4.82 R
 Rata-rata RRR TP1      : 1 : 2.0+ (Sesuai Syarat Minimal 1:2)
 ======================================================================
 DAFTAR TRANSAKSI LENGKAP:
 ======================================================================
- 1. [2026-07-17T12:35] SELL @ 4018.40 | SL: 4023.90 (-55.0p) | TP1: 4002.40 (+160.0p) | TP2: 4002.40 (+160.0p) | Status: TP1_HIT_RUNNER_BE  | PnL: +0.08R | Sweep: Equal Highs (EQH Liquidity Pool @ 4011.45, 2 touches)
- 2. [2026-07-17T13:20] SELL @ 4019.50 | SL: 4023.30 (-38.0p) | TP1: 4003.50 (+160.0p) | TP2: 4003.50 (+160.0p) | Status: TP1_HIT_RUNNER_BE  | PnL: +0.21R | Sweep: Equal Highs (EQH Liquidity Pool @ 4011.45, 2 touches)
- 3. [2026-07-22T14:55] BUY  @ 4141.80 | SL: 4134.80 (-70.0p) | TP1: 4157.80 (+160.0p) | TP2: 4157.80 (+160.0p) | Status: BE_PROTECTED       | PnL: +0.00R | Sweep: Equal Lows (EQL Liquidity Pool @ 4111.85, 2 touches)
- 4. [2026-07-23T15:20] SELL @ 4050.10 | SL: 4057.10 (-70.0p) | TP1: 4034.10 (+160.0p) | TP2: 4034.10 (+160.0p) | Status: TP1_HIT_RUNNER_BE  | PnL: +0.08R | Sweep: Equal Highs (EQH Liquidity Pool @ 4091.70, 2 touches)
- 5. [2026-07-27T12:45] SELL @ 4085.80 | SL: 4092.80 (-70.0p) | TP1: 4069.80 (+160.0p) | TP2: 4069.80 (+160.0p) | Status: TP1_HIT_RUNNER_BE  | PnL: +0.24R | Sweep: Equal Highs (EQH Liquidity Pool @ 4107.65, 2 touches)
- 6. [2026-07-29T13:35] SELL @ 4099.60 | SL: 4106.60 (-70.0p) | TP1: 4083.60 (+160.0p) | TP2: 4083.60 (+160.0p) | Status: TP1_HIT_RUNNER_BE  | PnL: +0.05R | Sweep: Equal Highs (EQH Liquidity Pool @ 4095.55, 2 touches)
- 7. [2026-07-29T14:30] SELL @ 4118.60 | SL: 4125.60 (-70.0p) | TP1: 4102.60 (+160.0p) | TP2: 4102.60 (+160.0p) | Status: TP1_HIT_RUNNER_BE  | PnL: +0.41R | Sweep: Equal Highs (EQH Liquidity Pool @ 4095.55, 2 touches)
- 8. [2026-07-29T15:25] SELL @ 4143.60 | SL: 4150.60 (-70.0p) | TP1: 4127.60 (+160.0p) | TP2: 4127.60 (+160.0p) | Status: TP2_FULL_HIT       | PnL: +2.45R | Sweep: Asian Session High (4106.70)
- 9. [2026-08-06T09:25] BUY  @ 4305.90 | SL: 4298.90 (-70.0p) | TP1: 4327.18 (+212.8p) | TP2: 4327.18 (+212.8p) | Status: TP2_FULL_HIT       | PnL: +1.90R | Sweep: Equal Lows (EQL Liquidity Pool @ 4304.85, 2 touches)
-10. [2026-08-06T12:30] BUY  @ 4290.30 | SL: 4283.30 (-70.0p) | TP1: 4306.30 (+160.0p) | TP2: 4306.30 (+160.0p) | Status: TP1_HIT_RUNNER_BE  | PnL: +0.26R | Sweep: Equal Lows (EQL Liquidity Pool @ 4286.70, 2 touches)
-11. [2026-08-06T13:10] BUY  @ 4299.20 | SL: 4292.20 (-70.0p) | TP1: 4315.20 (+160.0p) | TP2: 4315.20 (+160.0p) | Status: TP1_HIT_RUNNER_BE  | PnL: +0.07R | Sweep: Equal Lows (EQL Liquidity Pool @ 4286.70, 2 touches)
-12. [2026-08-07T13:30] BUY  @ 4396.00 | SL: 4389.00 (-70.0p) | TP1: 4412.00 (+160.0p) | TP2: 4412.00 (+160.0p) | Status: SL_HIT             | PnL: -1.00R | Sweep: Asian Session Low (4320.20)
-13. [2026-08-10T07:25] BUY  @ 4394.00 | SL: 4387.00 (-70.0p) | TP1: 4408.00 (+140.0p) | TP2: 4408.00 (+140.0p) | Status: TP1_HIT_RUNNER_BE  | PnL: +0.31R | Sweep: Equal Lows (EQL Liquidity Pool @ 4387.15, 2 touches)
-14. [2026-08-12T13:25] BUY  @ 4466.70 | SL: 4459.70 (-70.0p) | TP1: 4480.30 (+136.0p) | TP2: 4480.30 (+136.0p) | Status: TP1_HIT_RUNNER_BE  | PnL: +0.30R | Sweep: Equal Lows (EQL Liquidity Pool @ 4441.78, 4 touches)
-15. [2026-08-12T14:10] BUY  @ 4465.80 | SL: 4458.80 (-70.0p) | TP1: 4480.30 (+145.0p) | TP2: 4480.30 (+145.0p) | Status: TP1_HIT_RUNNER_BE  | PnL: +0.17R | Sweep: Equal Lows (EQL Liquidity Pool @ 4441.78, 4 touches)
-16. [2026-08-13T12:35] BUY  @ 4420.70 | SL: 4413.70 (-70.0p) | TP1: 4436.70 (+160.0p) | TP2: 4436.70 (+160.0p) | Status: TP1_HIT_RUNNER_BE  | PnL: +0.24R | Sweep: Equal Lows (EQL Liquidity Pool @ 4420.28, 4 touches)
-17. [2026-08-14T14:05] BUY  @ 4437.20 | SL: 4430.20 (-70.0p) | TP1: 4454.45 (+172.5p) | TP2: 4454.45 (+172.5p) | Status: BE_PROTECTED       | PnL: +0.00R | Sweep: Equal Lows (EQL Liquidity Pool @ 4408.15, 2 touches)
-18. [2026-08-14T15:10] BUY  @ 4432.40 | SL: 4425.40 (-70.0p) | TP1: 4454.45 (+220.5p) | TP2: 4454.45 (+220.5p) | Status: BE_PROTECTED       | PnL: +0.00R | Sweep: Equal Lows (EQL Liquidity Pool @ 4408.15, 2 touches)
-19. [2026-08-18T12:40] BUY  @ 4422.70 | SL: 4416.00 (-67.0p) | TP1: 4438.70 (+160.0p) | TP2: 4438.70 (+160.0p) | Status: TP1_HIT_RUNNER_BE  | PnL: +0.10R | Sweep: Previous Day Low / PDL (4433.40)
-20. [2026-08-18T14:20] BUY  @ 4412.10 | SL: 4408.60 (-35.0p) | TP1: 4428.10 (+160.0p) | TP2: 4428.10 (+160.0p) | Status: TP1_HIT_RUNNER_BE  | PnL: +0.63R | Sweep: Previous Day Low / PDL (4433.40)
-21. [2026-08-20T08:15] BUY  @ 4522.50 | SL: 4515.50 (-70.0p) | TP1: 4538.50 (+160.0p) | TP2: 4538.50 (+160.0p) | Status: TP1_HIT_RUNNER_BE  | PnL: +0.06R | Sweep: Equal Lows (EQL Liquidity Pool @ 4541.10, 2 touches)
-22. [2026-08-24T14:25] BUY  @ 4697.30 | SL: 4690.30 (-70.0p) | TP1: 4713.80 (+165.0p) | TP2: 4713.80 (+165.0p) | Status: TP1_HIT_RUNNER_BE  | PnL: +0.10R | Sweep: Equal Lows (EQL Liquidity Pool @ 4684.85, 2 touches)
-23. [2026-08-25T10:00] BUY  @ 4674.30 | SL: 4667.30 (-70.0p) | TP1: 4690.30 (+160.0p) | TP2: 4690.30 (+160.0p) | Status: TP1_HIT_RUNNER_BE  | PnL: +0.45R | Sweep: Asian Session Low (4676.30)
+ 1. [2026-07-17T12:35] SELL @ 4018.40 | SL: 4023.90 (-55.0p) | TP: 4007.90 (+105.0p) | Max Profit (MFE): +9.0p | Status: SL_HIT             | PnL: -1.00R
+ 2. [2026-07-22T14:55] BUY  @ 4141.80 | SL: 4134.80 (-70.0p) | TP: 4152.30 (+105.0p) | Max Profit (MFE): +7.0p | Status: SL_HIT             | PnL: -1.00R
+ 3. [2026-07-23T15:20] SELL @ 4050.10 | SL: 4057.10 (-70.0p) | TP: 4039.60 (+105.0p) | Max Profit (MFE): +69.0p | Status: BE_PROTECTED       | PnL: +0.00R
+ 4. [2026-07-27T12:45] SELL @ 4085.80 | SL: 4092.80 (-70.0p) | TP: 4075.30 (+105.0p) | Max Profit (MFE): +107.0p | Status: TP2_FULL_HIT       | PnL: +1.39R
+ 5. [2026-07-29T13:35] SELL @ 4099.60 | SL: 4106.60 (-70.0p) | TP: 4089.10 (+105.0p) | Max Profit (MFE): +7.0p | Status: SL_HIT             | PnL: -1.00R
+ 6. [2026-07-29T15:25] SELL @ 4143.60 | SL: 4150.60 (-70.0p) | TP: 4133.10 (+105.0p) | Max Profit (MFE): +183.0p | Status: TP2_FULL_HIT       | PnL: +2.06R
+ 7. [2026-08-06T09:25] BUY  @ 4305.90 | SL: 4298.90 (-70.0p) | TP: 4316.40 (+105.0p) | Max Profit (MFE): +179.0p | Status: TP2_FULL_HIT       | PnL: +2.03R
+ 8. [2026-08-06T12:30] BUY  @ 4290.30 | SL: 4283.30 (-70.0p) | TP: 4300.80 (+105.0p) | Max Profit (MFE): +110.0p | Status: TP2_FULL_HIT       | PnL: +1.49R
+ 9. [2026-08-06T13:10] BUY  @ 4299.20 | SL: 4292.20 (-70.0p) | TP: 4309.70 (+105.0p) | Max Profit (MFE): +88.0p | Status: PARTIAL_WIN        | PnL: +0.56R
+10. [2026-08-07T13:30] BUY  @ 4396.00 | SL: 4389.00 (-70.0p) | TP: 4406.50 (+105.0p) | Max Profit (MFE): +1.0p | Status: SL_HIT             | PnL: -1.00R
+11. [2026-08-10T07:25] BUY  @ 4394.00 | SL: 4387.00 (-70.0p) | TP: 4408.00 (+140.0p) | Max Profit (MFE): +45.0p | Status: SL_HIT             | PnL: -1.00R
+12. [2026-08-12T13:25] BUY  @ 4466.70 | SL: 4459.70 (-70.0p) | TP: 4480.30 (+136.0p) | Max Profit (MFE): +50.0p | Status: BE_PROTECTED       | PnL: +0.00R
+13. [2026-08-12T14:10] BUY  @ 4465.80 | SL: 4458.80 (-70.0p) | TP: 4480.30 (+145.0p) | Max Profit (MFE): +125.0p | Status: PARTIAL_WIN        | PnL: +0.52R
+14. [2026-08-13T12:35] BUY  @ 4420.70 | SL: 4413.70 (-70.0p) | TP: 4431.20 (+105.0p) | Max Profit (MFE): +99.0p | Status: PARTIAL_WIN        | PnL: +0.66R
+15. [2026-08-14T14:05] BUY  @ 4437.20 | SL: 4430.20 (-70.0p) | TP: 4454.45 (+172.5p) | Max Profit (MFE): +24.0p | Status: SL_HIT             | PnL: -1.00R
+16. [2026-08-18T12:40] BUY  @ 4422.70 | SL: 4416.00 (-67.0p) | TP: 4433.20 (+105.0p) | Max Profit (MFE): +14.0p | Status: SL_HIT             | PnL: -1.00R
+17. [2026-08-20T08:15] BUY  @ 4522.50 | SL: 4515.50 (-70.0p) | TP: 4533.00 (+105.0p) | Max Profit (MFE): +9.0p | Status: SL_HIT             | PnL: -1.00R
+18. [2026-08-24T14:25] BUY  @ 4697.30 | SL: 4690.30 (-70.0p) | TP: 4713.80 (+165.0p) | Max Profit (MFE): +14.0p | Status: SL_HIT             | PnL: -1.00R
+19. [2026-08-25T10:00] BUY  @ 4674.30 | SL: 4667.30 (-70.0p) | TP: 4684.80 (+105.0p) | Max Profit (MFE): +81.0p | Status: PARTIAL_WIN        | PnL: +0.58R

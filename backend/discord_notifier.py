@@ -154,8 +154,12 @@ async def send_discord_trade_update(signal: dict, new_status: str, pnl: float):
 
     if new_status == "WIN":
         color = 0x10B981
-        status_icon = "✅"
-        result_text = "Take Profit (TP) 🎯"
+        status_icon = "🎯"
+        result_text = "Take Profit (Full TP) 🎯"
+    elif new_status == "PARTIAL_WIN":
+        color = 0x10B981
+        status_icon = "💰"
+        result_text = "Partial Take Profit Secured (+BE) 💰"
     elif new_status == "BREAK_EVEN":
         color = 0x3B82F6
         status_icon = "🛡️"

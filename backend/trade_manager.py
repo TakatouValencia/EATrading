@@ -240,12 +240,12 @@ class TradeManager:
 
                 # -------------------------------------------------------------
                 # Multi-Stage Risk Management & Profit Banking:
-                # Stage 1: +50 pips -> Trailing Stop moved to Break-Even (+0.5 pip)
-                # Stage 2: +70 pips -> Bank 50% lot profit & protect remainder
-                # Stage 3: Target TP (>120 - 250 pips) -> Full Institutional Winner
+                # Stage 1: +50 pips ($5.00 on Gold) -> Trailing Stop moved to Break-Even (+0.5 pip)
+                # Stage 2: +70 pips ($7.00 on Gold) -> Bank 50% lot profit & protect remainder
+                # Stage 3: Target TP (>100 - 180 pips) -> Full Institutional Winner
                 # -------------------------------------------------------------
-                be_trigger_dist = 5.0 * pip_unit if is_xau else 0.0005 # 50 pips
-                partial_dist = 7.0 * pip_unit if is_xau else 0.0007    # 70 pips
+                be_trigger_dist = 50.0 * pip_unit if is_xau else 0.0050 # 50 pips ($5.00 on Gold)
+                partial_dist = 70.0 * pip_unit if is_xau else 0.0070    # 70 pips ($7.00 on Gold)
 
                 # Stage 1: Auto Break-Even Protection at +50 pips
                 if favorable_move >= be_trigger_dist and not trade.get('is_be', False):
@@ -296,9 +296,9 @@ class TradeManager:
                         new_status = 'WIN'
                     else: # lost (hit SL / BE)
                         if trade.get('partial_taken', False):
-                            new_status = 'WIN'
+                            new_status = 'PARTIAL_WIN'
                             pnl = round(trade.get('locked_pnl', 0.0), 2)
-                            won = True # Counted as WIN because cash profit was secured!
+                            won = True # Banked partial profit
                         elif trade.get('is_be', False):
                             new_status = 'BREAK_EVEN'
                             pnl = 0.0
