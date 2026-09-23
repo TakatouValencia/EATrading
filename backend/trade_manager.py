@@ -240,15 +240,16 @@ class TradeManager:
 
                 # -------------------------------------------------------------
                 # Multi-Stage Risk Management & Profit Banking:
-                # Stage 1: +50 pips ($5.00 on Gold) -> Trailing Stop moved to Break-Even (+0.5 pip)
+                # Stage 1: +40 pips ($4.00 on Gold) -> Trailing Stop moved to Break-Even (+0.5 pip)
                 # Stage 2: +70 pips ($7.00 on Gold) -> Bank 50% lot profit & protect remainder
                 # Stage 3: Target TP (>100 - 180 pips) -> Full Institutional Winner
                 # -------------------------------------------------------------
-                be_trigger_dist = 50.0 * pip_unit if is_xau else 0.0050 # 50 pips ($5.00 on Gold)
+                be_trigger_dist = 40.0 * pip_unit if is_xau else 0.0040 # 40 pips ($4.00 on Gold)
                 partial_dist = 70.0 * pip_unit if is_xau else 0.0070    # 70 pips ($7.00 on Gold)
 
-                # Stage 1: Auto Break-Even Protection at +50 pips
+                # Stage 1: Auto Break-Even Protection at +40 pips
                 if favorable_move >= be_trigger_dist and not trade.get('is_be', False):
+
                     new_sl = round(entry + (0.5 * pip_unit) if is_buy else entry - (0.5 * pip_unit), 2 if is_xau else 5)
                     trade['sl_price'] = new_sl
                     trade['sl'] = new_sl

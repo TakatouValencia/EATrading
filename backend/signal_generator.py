@@ -2,7 +2,7 @@ import os
 import json
 import asyncio
 from typing import Dict, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from risk_calculator import calculate_pips, calculate_lot_size
 import settings_manager
 from market_schedule import is_forex_market_open, is_killzone_active, get_utc_datetime
@@ -90,14 +90,15 @@ class SignalGenerator:
         if current_time_str:
             try:
                 ts = current_time_str.replace("Z", "+00:00")
-                if "+" in ts or (len(ts) > 10 and "-" in ts[10:]):
-                    now_time = datetime.fromisoformat(ts).replace(tzinfo=None)
+                parsed_ts = datetime.fromisoformat(ts)
+                if parsed_ts.tzinfo is not None:
+                    now_time = parsed_ts.astimezone(timezone.utc).replace(tzinfo=None)
                 else:
-                    now_time = datetime.fromisoformat(ts)
+                    now_time = parsed_ts
             except Exception:
-                now_time = datetime.now()
+                now_time = datetime.now(timezone.utc).replace(tzinfo=None)
         else:
-            now_time = datetime.now()
+            now_time = datetime.now(timezone.utc).replace(tzinfo=None)
 
         if symbol in self.cooldowns:
             if now_time < self.cooldowns[symbol]:
@@ -170,148 +171,152 @@ class SignalGenerator:
                 reasons.append(f"HTF Trend Alignment: H4 & D1 {trend_tag} Aligned (+3)")
 
             # -------------------------------------------------------------
-            # RULE 2: Liquidity Pool Sweep (Asian, PDH/PDL, EQH/EQL, Swings)
+            # RULE 2: Setup Identification (Mode A: Sweep Reversal vs Mode B: Trend Continuation)
             # -------------------------------------------------------------
             sweep_target_type = f"SWEEP_{trend_tag}"
             candidate_sweeps = [s for s in (sweeps or []) if s.get('type') == sweep_target_type]
-
-            if not candidate_sweeps:
-                # DILARANG entry tanpa adanya sweep likuiditas!
-                return None
-
-            # RULE 2A: Disallow minor M5 swings: ONLY allow Major Liquidity Pools (Asian High/Low, PDH/PDL, EQH/EQL)
             major_candidate_sweeps = [
                 s for s in candidate_sweeps 
                 if s.get('pool_type') in ['ASIAN_LOW', 'ASIAN_HIGH', 'PDL', 'PDH', 'EQL', 'EQH']
             ]
-            if not major_candidate_sweeps:
+
+            setup_mode = None
+            matched_sweep = None
+            pool_name = "HTF Order Flow"
+
+            # Check Mode A: Major Liquidity Pool Sweep (Reversal)
+            if major_candidate_sweeps:
+                candidate = major_candidate_sweeps[-1]
+                p_name = candidate.get('pool_name', 'Liquidity Pool')
+                is_blacklisted = False
+                if trade_manager and hasattr(trade_manager, 'is_pool_blacklisted'):
+                    is_blacklisted = trade_manager.is_pool_blacklisted(p_name)
+                    
+                if not is_blacklisted:
+                    has_rej = candidate.get('has_rejection', False) or (candidate.get('wick_ratio', 0) >= 0.28)
+                    if reversal_patterns and any(trend_tag in p for p in reversal_patterns):
+                        has_rej = True
+                    if has_rej:
+                        # Check LTF Structure Shift post-sweep (CHoCH or BOS)
+                        choch_found = False
+                        for ev in reversed((events or [])[-12:]):
+                            if ev.get('type') in [f"CHOCH_{trend_tag}", f"BOS_{trend_tag}"]:
+                                choch_found = True
+                                break
+                        if choch_found:
+                            setup_mode = "SWEEP_REVERSAL"
+                            matched_sweep = candidate
+                            pool_name = p_name
+                            confluence_score += 4
+                            reasons.append(f"Liquidity Sweep: {pool_name} Swept with Rejection Wick & Structure Shift (+4)")
+
+            # Check Mode B: Institutional Trend Continuation (Order Flow Pullback)
+            if not setup_mode:
+                # Strictly requires H4 & H1 trend alignment with trade direction
+                if effective_h4 == trend_tag and (h1_trend == trend_tag or m15_trend == trend_tag):
+                    # Recent BOS in trend direction
+                    recent_bos = False
+                    for ev in reversed((events or [])[-12:]):
+                        if ev.get('type') == f"BOS_{trend_tag}":
+                            recent_bos = True
+                            break
+                    if recent_bos:
+                        # Valuation check: Discount for Buy, Premium for Sell
+                        eq_level = pd_zones.get('eq', current_price) if pd_zones else current_price
+                        in_discount = (current_price <= eq_level + (1.5 if is_xau else 0.0015)) if is_bullish else (current_price >= eq_level - (1.5 if is_xau else 0.0015))
+                        if in_discount:
+                            setup_mode = "TREND_CONTINUATION"
+                            pool_name = f"Trend Continuation ({trend_tag})"
+                            confluence_score += 3
+                            reasons.append(f"Trend Continuation: H4/H1 Pro-Trend Order Flow & BOS (+3)")
+
+            if not setup_mode:
+                # No valid institutional setup found
                 return None
 
-            # Pick the most recent valid major sweep
-            matched_sweep = major_candidate_sweeps[-1]
-            pool_name = matched_sweep.get('pool_name', 'Liquidity Pool')
-            pool_type = matched_sweep.get('pool_type', 'MAJOR')
-            
-            # RULE 2B: Zone Lockout / Anti-Revenge Filter
-            if trade_manager and hasattr(trade_manager, 'is_pool_blacklisted'):
-                if trade_manager.is_pool_blacklisted(pool_name):
-                    return None
-            
-            # Rejection verification
-            has_rejection = matched_sweep.get('has_rejection', False) or (matched_sweep.get('wick_ratio', 0) >= 0.30)
-            if reversal_patterns and any(trend_tag in p for p in reversal_patterns):
-                has_rejection = True
-                
-            if not has_rejection:
-                # Entry dilarang jika tidak ada candle rejection pembalikan arah
-                return None
-                
-            # Volume Spike verification
-            volume_spike = matched_sweep.get('volume_spike', True)
-            
-            confluence_score += 3
-            reasons.append(f"Liquidity Sweep: {pool_name} Swept with Rejection Wick & Institutional Volume (+3)")
-
-            # RULE 2C: RSI Momentum Exhaustion Filter
+            # RULE 2C: RSI Momentum Health Check
             if engine_ltf and hasattr(engine_ltf, 'calculate_rsi'):
                 rsi_val = engine_ltf.calculate_rsi(14)
-                if is_bullish and rsi_val > 48.0:
-                    # BUY: Momentum must be in exhaustion / oversold territory
-                    return None
-                elif not is_bullish and rsi_val < 52.0:
-                    # SELL: Momentum must be in exhaustion / overbought territory
-                    return None
-                reasons.append(f"Momentum Exhaustion: RSI ({rsi_val:.1f}) confirmed reversal state (+2)")
+                if setup_mode == "SWEEP_REVERSAL":
+                    if is_bullish and rsi_val > 48.0:
+                        return None
+                    elif not is_bullish and rsi_val < 52.0:
+                        return None
+                else: # TREND_CONTINUATION
+                    if is_bullish and rsi_val > 62.0:
+                        return None
+                    elif not is_bullish and rsi_val < 38.0:
+                        return None
+                reasons.append(f"Momentum Health: RSI ({rsi_val:.1f}) aligned with setup (+2)")
 
             # RULE 2D: Displacement Candle Ratio Check (No weak dojis/indecision)
+            c_high = current_price
+            c_low = current_price
+            c_open = current_price
             if engine_ltf and getattr(engine_ltf, 'data', None):
                 last_c = engine_ltf.data[-1]
-                c_range = last_c['high'] - last_c['low']
-                c_body = abs(last_c['close'] - last_c['open'])
+                c_high = last_c['high']
+                c_low = last_c['low']
+                c_open = last_c['open']
+                c_range = c_high - c_low
+                c_body = abs(last_c['close'] - c_open)
                 body_ratio = (c_body / c_range) if c_range > 0 else 0
-                if body_ratio < 0.38:
+                if body_ratio < 0.32:
                     return None
 
             # -------------------------------------------------------------
-            # RULE 3: LTF Structure Shift (CHoCH on M5/M15 post-sweep)
+            # RULE 4: Entry Zone in Unfilled FVG or Unmitigated OB (Tapped by Current Candle)
             # -------------------------------------------------------------
-            choch_found = False
-            for ev in reversed((events or [])[-20:]):
-                if ev.get('type') in [f"CHOCH_{trend_tag}", f"BOS_{trend_tag}"]:
-                    choch_found = True
-                    confluence_score += 2
-                    reasons.append(f"LTF Shift: M5/M15 {ev['type']} Confirmed Post-Sweep (+2)")
-                    break
-
-            if not choch_found:
-                # Wajib ada CHoCH di LTF (M5/M15) setelah sweep terjadi
-                return None
-
-            # -------------------------------------------------------------
-            # RULE 4: Entry Zone in Unfilled FVG or Unmitigated OB in Discount/Premium
-            # -------------------------------------------------------------
-            # FVG and OB candidates in the direction of trade
             fvg_target_type = f"FVG_{trend_tag}"
             ob_target_type = f"OB_{trend_tag}"
 
             candidate_fvgs = [f for f in valid_fvgs if f.get('type') == fvg_target_type and not f.get('mitigated', False)]
             candidate_obs = [o for o in valid_obs if o.get('type') == ob_target_type and not o.get('mitigated', False)]
 
-            # Premium / Discount Check
-            if pd_zones:
-                eq_level = pd_zones.get('eq', current_price)
-                if is_bullish:
-                    # BUY entry must be in Wholesale Discount (< 50% Eq)
-                    if current_price > eq_level + (1.0 if is_xau else 0.0010):
-                        return None
-                    reasons.append("Valuation: Inside Wholesale Discount Zone (< 50% Eq) (+2)")
-                else:
-                    # SELL entry must be in Wholesale Premium (> 50% Eq)
-                    if current_price < eq_level - (1.0 if is_xau else 0.0010):
-                        return None
-                    reasons.append("Valuation: Inside Wholesale Premium Zone (> 50% Eq) (+2)")
-
-            # Find matching POI for entry
             matched_poi = None
             poi_type = None
             poi_top = 0.0
             poi_bottom = 0.0
 
             if is_bullish:
-                # Bullish: Entry POI below current price or current price inside POI
+                # Bullish: Current candle tapped into or is inside the POI
                 valid_pois = []
                 for f in candidate_fvgs:
-                    if current_price >= f['bottom'] - 0.3 * atr and f['top'] <= current_price + 15.0:
+                    if c_low <= f['top'] and current_price >= f['bottom'] - 0.5:
                         valid_pois.append(("FVG", f, f['top'], f['bottom']))
                 for o in candidate_obs:
-                    if current_price >= o['bottom'] - 0.3 * atr and o['top'] <= current_price + 15.0:
+                    if c_low <= o['top'] and current_price >= o['bottom'] - 0.5:
                         valid_pois.append(("OB", o, o['top'], o['bottom']))
 
                 if not valid_pois:
-                    # Wajib berada di area Unfilled FVG atau Unmitigated OB
                     return None
 
-                # Prioritize FVG if available, else closest POI
+                # Rejection filter: Close above low (bullish reaction)
+                if current_price < c_open and (current_price - c_low) < (c_high - current_price):
+                    return None
+
                 fvg_pois = [p for p in valid_pois if p[0] == "FVG"]
                 if fvg_pois:
                     valid_pois = fvg_pois
                 valid_pois.sort(key=lambda x: abs(current_price - x[2]))
                 poi_type, poi_obj, poi_top, poi_bottom = valid_pois[0]
-                
-                # Determine entry price: Instant confirmation execution (eliminate missed orders)
                 exec_type = "CONFIRMED"
                 entry_target = current_price
+
             else:
-                # Bearish: Entry POI above current price or current price inside POI
+                # Bearish: Current candle tapped into or is inside the POI
                 valid_pois = []
                 for f in candidate_fvgs:
-                    if current_price <= f['top'] + 0.3 * atr and f['bottom'] >= current_price - 15.0:
+                    if c_high >= f['bottom'] and current_price <= f['top'] + 0.5:
                         valid_pois.append(("FVG", f, f['top'], f['bottom']))
                 for o in candidate_obs:
-                    if current_price <= o['top'] + 0.3 * atr and o['bottom'] >= current_price - 15.0:
+                    if c_high >= o['bottom'] and current_price <= o['top'] + 0.5:
                         valid_pois.append(("OB", o, o['top'], o['bottom']))
 
                 if not valid_pois:
+                    return None
+
+                if current_price > c_open and (c_high - current_price) < (current_price - c_low):
                     return None
 
                 fvg_pois = [p for p in valid_pois if p[0] == "FVG"]
@@ -319,24 +324,23 @@ class SignalGenerator:
                     valid_pois = fvg_pois
                 valid_pois.sort(key=lambda x: abs(current_price - x[3]))
                 poi_type, poi_obj, poi_top, poi_bottom = valid_pois[0]
-
                 exec_type = "CONFIRMED"
                 entry_target = current_price
 
             poi_obj_type = poi_obj.get('type', f"{poi_type}_{'BULLISH' if is_bullish else 'BEARISH'}")
             poi_sig = f"{symbol}_{poi_obj_type}_{poi_bottom}_{poi_top}"
-            reasons.append(f"Entry Zone: Unfilled {poi_type} ({poi_bottom:.2f} - {poi_top:.2f}) (+2)")
+            reasons.append(f"Entry Zone: Unfilled {poi_type} ({poi_bottom:.2f} - {poi_top:.2f}) Tapped & Rejected (+2)")
 
             # -------------------------------------------------------------
-            # RULE 5: Reduced Stop Loss (Tighter Buffer 20 pips, Floor 35p, Cap 70p)
+            # RULE 5: Stop Loss (POI Extreme + Buffer, Floor 35p, Cap 55p)
             # -------------------------------------------------------------
-            buffer_pips = 2.0 if is_xau else 0.0020 # 20 pips ($2.00 on Gold)
+            buffer_pips = 1.5 if is_xau else 0.0015 # 15 pips ($1.50 on Gold)
             min_sl_dist = 3.5 if is_xau else 0.0035 # Minimum SL floor 35 pips ($3.50)
-            max_sl_dist = 7.0 if is_xau else 0.0070 # Maximum SL cap 70 pips ($7.00)
+            max_sl_dist = 5.5 if is_xau else 0.0055 # Maximum SL cap 55 pips ($5.50)
             
             if is_bullish:
-                sweep_extreme = matched_sweep.get('sweep_low', matched_sweep.get('level', poi_bottom))
-                raw_sl = min(sweep_extreme, poi_bottom) - buffer_pips
+                ref_low = matched_sweep.get('sweep_low', poi_bottom) if matched_sweep else poi_bottom
+                raw_sl = min(ref_low, poi_bottom) - buffer_pips
                 sl_target = round(raw_sl, 2 if is_xau else 5)
                 risk_dist = entry_target - sl_target
                 if risk_dist < min_sl_dist:
@@ -346,8 +350,8 @@ class SignalGenerator:
                     sl_target = round(entry_target - max_sl_dist, 2 if is_xau else 5)
                     risk_dist = entry_target - sl_target
             else:
-                sweep_extreme = matched_sweep.get('sweep_high', matched_sweep.get('level', poi_top))
-                raw_sl = max(sweep_extreme, poi_top) + buffer_pips
+                ref_high = matched_sweep.get('sweep_high', poi_top) if matched_sweep else poi_top
+                raw_sl = max(ref_high, poi_top) + buffer_pips
                 sl_target = round(raw_sl, 2 if is_xau else 5)
                 risk_dist = sl_target - entry_target
                 if risk_dist < min_sl_dist:
@@ -361,75 +365,46 @@ class SignalGenerator:
                 return None
 
             # -------------------------------------------------------------
-            # RULE 6: Take Profit Target (Institutional HTF Liquidity >= 100 - 180 pips)
+            # RULE 6: Take Profit Targets (TP1: +75p Partial Banking, TP2: +105p Full Runner)
             # -------------------------------------------------------------
-            cfg = settings_manager.load_settings()
-            min_tp_pips = float(cfg.get("min_tp_pips", 100.0))
-            max_tp_pips = float(cfg.get("max_tp_pips", 180.0))
-
-            min_tp_dist = (min_tp_pips * 0.10) if is_xau else (min_tp_pips * 0.0001)
-            max_tp_dist = (max_tp_pips * 0.10) if is_xau else (max_tp_pips * 0.0001)
+            default_tp1_dist = 7.5 if is_xau else 0.0075 # 75 pips ($7.50)
+            default_tp2_dist = 10.5 if is_xau else 0.0105 # 105 pips ($10.50) - strictly > 100 pips
 
             tp_candidates = []
             if is_bullish:
-                # 1. Major Liquidity Pools above entry (Asian High, PDH, EQH)
                 if liquidity_pools:
                     for p_key in ['asian_high', 'pdh']:
-                        if liquidity_pools.get(p_key) and entry_target + min_tp_dist <= liquidity_pools[p_key] <= entry_target + max_tp_dist:
+                        if liquidity_pools.get(p_key) and entry_target + 10.0 <= liquidity_pools[p_key] <= entry_target + 11.5:
                             tp_candidates.append(liquidity_pools[p_key])
                     for eqh in liquidity_pools.get('eqh', []):
-                        if entry_target + min_tp_dist <= eqh['level'] <= entry_target + max_tp_dist:
+                        if entry_target + 10.0 <= eqh['level'] <= entry_target + 11.5:
                             tp_candidates.append(eqh['level'])
-                
-                # 2. HTF Unmitigated Bearish OB / FVG / Resistance in target range
-                for s in (snr_zones or []):
-                    if s.get('type') == 'RESISTANCE' and entry_target + min_tp_dist <= s['level'] <= entry_target + max_tp_dist:
-                        tp_candidates.append(s['level'])
-                for f in valid_fvgs:
-                    if f.get('type') == 'FVG_BEARISH' and entry_target + min_tp_dist <= f['bottom'] <= entry_target + max_tp_dist:
-                        tp_candidates.append(f['bottom'])
-                for o in valid_obs:
-                    if o.get('type') == 'OB_BEARISH' and entry_target + min_tp_dist <= o['bottom'] <= entry_target + max_tp_dist:
-                        tp_candidates.append(o['bottom'])
 
-                # Default target: 105 pips ($10.50 on Gold) - strictly > 100 pips
-                default_tp = round(entry_target + (10.5 if is_xau else 0.0105), 2 if is_xau else 5)
-                tp_target = sorted(tp_candidates)[0] if tp_candidates else default_tp
+                tp1_target = round(entry_target + default_tp1_dist, 2 if is_xau else 5)
+                tp2_target = sorted(tp_candidates)[0] if tp_candidates else round(entry_target + default_tp2_dist, 2 if is_xau else 5)
+                tp_target = tp2_target
 
             else:
-                # 1. Major Liquidity Pools below entry (Asian Low, PDL, EQL)
                 if liquidity_pools:
                     for p_key in ['asian_low', 'pdl']:
-                        if liquidity_pools.get(p_key) and entry_target - max_tp_dist <= liquidity_pools[p_key] <= entry_target - min_tp_dist:
+                        if liquidity_pools.get(p_key) and entry_target - 11.5 <= liquidity_pools[p_key] <= entry_target - 10.0:
                             tp_candidates.append(liquidity_pools[p_key])
                     for eql in liquidity_pools.get('eql', []):
-                        if entry_target - max_tp_dist <= eql['level'] <= entry_target - min_tp_dist:
+                        if entry_target - 11.5 <= eql['level'] <= entry_target - 10.0:
                             tp_candidates.append(eql['level'])
 
-                # 2. HTF Unmitigated Bullish OB / FVG / Support in target range
-                for s in (snr_zones or []):
-                    if s.get('type') == 'SUPPORT' and entry_target - max_tp_dist <= s['level'] <= entry_target - min_tp_dist:
-                        tp_candidates.append(s['level'])
-                for f in valid_fvgs:
-                    if f.get('type') == 'FVG_BULLISH' and entry_target - max_tp_dist <= f['top'] <= entry_target - min_tp_dist:
-                        tp_candidates.append(f['top'])
-                for o in valid_obs:
-                    if o.get('type') == 'OB_BULLISH' and entry_target - max_tp_dist <= o['top'] <= entry_target - min_tp_dist:
-                        tp_candidates.append(o['top'])
-
-                # Default target: 105 pips ($10.50 on Gold) - strictly > 100 pips
-                default_tp = round(entry_target - (10.5 if is_xau else 0.0105), 2 if is_xau else 5)
-                tp_target = sorted(tp_candidates, reverse=True)[0] if tp_candidates else default_tp
+                tp1_target = round(entry_target - default_tp1_dist, 2 if is_xau else 5)
+                tp2_target = sorted(tp_candidates, reverse=True)[0] if tp_candidates else round(entry_target - default_tp2_dist, 2 if is_xau else 5)
+                tp_target = tp2_target
 
             # -------------------------------------------------------------
-            # RULE 7: Adaptive Risk to Reward (RRR >= 1.5) Enforced
+            # RULE 7: Adaptive Risk to Reward (RRR >= 1.8) Enforced
             # -------------------------------------------------------------
             tp_dist = abs(tp_target - entry_target)
             rr_ratio = tp_dist / risk_dist if risk_dist > 0 else 0
-
-            # Syarat: RRR minimal 1:1.5R (umumnya 1:2.0 - 1:4.0R)
-            if rr_ratio < 1.45:
+            if rr_ratio < 1.75:
                 return None
+
 
             # -------------------------------------------------------------
             # RULE 8: Grade A+ Verification (All Criteria Fulfilled)
@@ -437,6 +412,8 @@ class SignalGenerator:
             setup_grade = "A+"
             reasons.append(f"Session Active: {kz_reason}")
             reasons.append(f"Risk Management: Target TP (+{tp_dist/pip_unit:.0f}p / 1:{rr_ratio:.1f}R)")
+
+            rr_tp1 = abs(tp1_target - entry_target) / risk_dist if risk_dist > 0 else 0
 
             return {
                 "symbol": symbol,
@@ -446,15 +423,15 @@ class SignalGenerator:
                 "entry_zone": f"{min(poi_bottom, poi_top):.2f} - {max(poi_bottom, poi_top):.2f} ({poi_type})",
                 "sl": sl_target,
                 "tp": tp_target,
-                "tp1": tp_target,
-                "tp2": tp_target,
+                "tp1": tp1_target,
+                "tp2": tp2_target,
                 "reasons": reasons,
                 "grade": setup_grade,
                 "score": confluence_score,
                 "risk_multiplier": 1.0,
                 "poi_signature": poi_sig,
                 "rr_ratio": round(rr_ratio, 2),
-                "rr_tp1": round(rr_ratio, 2),
+                "rr_tp1": round(rr_tp1, 2),
                 "sweep_pool": pool_name,
                 "killzone": kz_reason
             }
@@ -485,17 +462,22 @@ class SignalGenerator:
         entry_val = round(best['entry'], decimal_places)
         sl_val = round(best['sl'], decimal_places)
         tp_val = round(best['tp'], decimal_places)
+        tp1_val = round(best['tp1'], decimal_places)
+        tp2_val = round(best['tp2'], decimal_places)
 
         sl_pips = calculate_pips(symbol, entry_val, sl_val)
         lot_size = round(calculate_lot_size(acc_balance, base_risk_pct, sl_pips, symbol), 2)
 
-        tp_pips = calculate_pips(symbol, entry_val, tp_val)
+        tp1_pips = calculate_pips(symbol, entry_val, tp1_val)
+        tp2_pips = calculate_pips(symbol, entry_val, tp2_val)
+        tp_pips = tp2_pips
 
         ui_badge = "[UI_BADGE:ENTRY ZONE ACTIVE] Sinyal Terkonfirmasi. Siap Eksekusi Langsung."
         reasons_list = [ui_badge] + best['reasons']
-        reasons_list.append(f"Target TP (+{tp_pips:.0f}p): {tp_val} (HTF Institutional Liquidity)")
-        reasons_list.append("Auto Break-Even: Aktif di +70p / 1.0R (Proteksi Modal 100% Risk-Free)")
-        reasons_list.append(f"SMC Grade: {best['grade']} (RRR 1:{best['rr_ratio']})")
+        reasons_list.append(f"Target TP1 (+{tp1_pips:.0f}p): {tp1_val} (Kunci Profit 50-70%)")
+        reasons_list.append(f"Target TP2 (+{tp2_pips:.0f}p): {tp2_val} (Full Runner HTF Liquidity)")
+        reasons_list.append("Auto Break-Even: Aktif di +50p (Proteksi Modal 100% Risk-Free)")
+        reasons_list.append(f"SMC Grade: {best['grade']} (RRR TP2 1:{best['rr_ratio']})")
 
         signal = {
             "symbol": symbol,
@@ -506,8 +488,8 @@ class SignalGenerator:
             "entry_zone": best['entry_zone'],
             "sl": sl_val,
             "tp": tp_val,
-            "tp1": tp_val,
-            "tp2": tp_val,
+            "tp1": tp1_val,
+            "tp2": tp2_val,
             "lot_size": lot_size,
             "reasons": reasons_list,
             "status": "ACTIVE",
@@ -515,10 +497,11 @@ class SignalGenerator:
             "atr": round(atr, 2),
             "poi_signature": best['poi_signature'],
             "rr_ratio": best['rr_ratio'],
-            "rr_tp1": best['rr_ratio'],
+            "rr_tp1": best['rr_tp1'],
             "sweep_pool": best['sweep_pool'],
             "killzone": best['killzone']
         }
+
 
         print(f"\n{'='*60}\n[SMC GRADE A+ SETUP] {symbol} {signal['type']} ({signal['signal_type']})\nEntry: {signal['entry']} (Zone: {signal['entry_zone']}) | SL: {signal['sl']} (-{sl_pips:.0f}p)\nTP: {signal['tp']} (+{tp_pips:.0f}p | 1:{best['rr_ratio']}R)\nSweep: {best['sweep_pool']} | Session: {best['killzone']}\n{'='*60}\n")
 

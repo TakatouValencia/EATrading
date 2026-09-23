@@ -58,6 +58,8 @@ async def send_discord_alert(signal: dict):
     
     sl_pips = abs(entry_f - sl_f) / pip_unit if pip_unit > 0 else 0
     tp_pips = abs(tp_f - entry_f) / pip_unit if pip_unit > 0 else 0
+    tp1_pips = abs(tp1_f - entry_f) / pip_unit if pip_unit > 0 else 0
+    tp2_pips = abs(tp2_f - entry_f) / pip_unit if pip_unit > 0 else 0
     rr_tp = tp_pips / sl_pips if sl_pips > 0 else 2.0
     
     entry_zone = signal.get('entry_zone', f"{entry_f:.2f}")
@@ -66,7 +68,7 @@ async def send_discord_alert(signal: dict):
     
     embed = {
         "title": f"💎 [GRADE A+] {signal.get('type')} Signal: {signal.get('symbol')} 💎",
-        "description": "Institutional SMC Engine • Setup terkonfirmasi dengan likuiditas sweep, LTF CHoCH & FVG imbalance.",
+        "description": "Institutional SMC Engine • Setup terkonfirmasi dengan likuiditas institusional, struktur market & FVG POI.",
         "color": color,
         "fields": [
             {"name": "📊 Pair & Direction", "value": f"**{symbol}** | **{signal.get('type')}** ({signal.get('signal_type', 'CONFIRMED')})", "inline": True},
@@ -74,8 +76,9 @@ async def send_discord_alert(signal: dict):
             {"name": "⚖️ Risk : Reward (RRR)", "value": f"**1 : {rr_tp:.1f}**", "inline": True},
             {"name": "🎯 Entry Trigger / Price", "value": f"**{entry_f:.2f}**", "inline": True},
             {"name": "📦 Entry Zone (POI)", "value": f"**{entry_zone}**", "inline": True},
-            {"name": "🛑 Stop Loss (SL)", "value": f"**{sl_f:.2f}** (-{sl_pips:.0f} pips | Sweep Wick)", "inline": True},
-            {"name": "🎯 Take Profit (TP)", "value": f"**{tp_f:.2f}** (+{tp_pips:.0f} pips | 1:{rr_tp:.1f}R)", "inline": True},
+            {"name": "🛑 Stop Loss (SL)", "value": f"**{sl_f:.2f}** (-{sl_pips:.0f} pips | POI Buffer)", "inline": True},
+            {"name": "🎯 Take Profit 1 (TP1)", "value": f"**{tp1_f:.2f}** (+{tp1_pips:.0f}p | Kunci 50-70%)", "inline": True},
+            {"name": "🎯 Take Profit 2 (TP2)", "value": f"**{tp2_f:.2f}** (+{tp2_pips:.0f}p | Full Runner)", "inline": True},
             {"name": "💼 Lot Rekomendasi", "value": f"**{signal.get('lot_size', 0.01)} Lot** (Risiko 1%)", "inline": True},
         ],
         "footer": {
@@ -86,11 +89,11 @@ async def send_discord_alert(signal: dict):
     
     # Detailed Analysis Reason breakdown
     analysis_points = [
-        f"🎯 **Liquidity Sweep**: {sweep_info} (Swept with Rejection Wick & Volume Spike)",
+        f"🎯 **Setup Pattern**: {sweep_info}",
         f"⚡ **Imbalance POI**: Entry di dalam area {entry_zone}",
-        f"🔄 **LTF Confirmation**: CHoCH M5/M15 post-sweep terkonfirmasi searah reversal",
+        f"🔄 **LTF Confirmation**: Shift struktur M5/M15 terkonfirmasi searah target",
         f"⏱️ **Killzone Active**: {kz_info}",
-        f"🛡️ **Risk Parameter**: SL di luar sweep extreme wick + buffer 15-20 pips, RRR minimal 1:1.5 terpenuhi"
+        f"🛡️ **Risk Parameter**: SL di luar POI + buffer, RRR minimal 1:1.8 terpenuhi"
     ]
     embed["fields"].append({
         "name": "🧠 Alasan Analisis Institusional",
@@ -100,9 +103,10 @@ async def send_discord_alert(signal: dict):
         
     embed["fields"].append({
         "name": "📋 Intraday Trade Execution Plan", 
-        "value": f"1. Masuk order langsung di zona **{entry_zone}** (harga saat ini: **{entry_f:.2f}**).\n2. Target TP di **{tp_f:.2f}** (+{tp_pips:.0f} pips).\n3. Proteksi Modal: Begitu floating **+70 pips**, SL otomatis digeser ke **Break-Even**.\n4. Disiplin SL di **{sl_f:.2f}** (-{sl_pips:.0f} pips).", 
+        "value": f"1. Masuk order langsung di zona **{entry_zone}** (harga saat ini: **{entry_f:.2f}**).\n2. **TP1 di {tp1_f:.2f} (+{tp1_pips:.0f}p)**: Kunci 50%-70% lot profit.\n3. **TP2 di {tp2_f:.2f} (+{tp2_pips:.0f}p)**: Biarkan sisa lot berlari hingga target likuiditas.\n4. **Proteksi Modal**: Begitu floating **+50 pips**, SL otomatis digeser ke **Break-Even** (0 Risiko).\n5. Disiplin SL di **{sl_f:.2f}** (-{sl_pips:.0f} pips).", 
         "inline": False
     })
+
         
     payload = {
         "username": "Novaire EA",

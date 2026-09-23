@@ -43,71 +43,31 @@ async def run_2month_backtest():
     df_h4_raw = df_1h_raw.resample('4h').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}).dropna()
     df_d1_raw = df_1h_raw.resample('24h').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}).dropna()
 
-    # Format data
-    df_d1 = []
-    for idx, r in df_d1_raw.iterrows():
-        df_d1.append({
-            'timestamp': idx.isoformat(),
-            'open': float(r['Open']), 'high': float(r['High']),
-            'low': float(r['Low']), 'close': float(r['Close']),
-            'volume': float(r.get('Volume', 0))
-        })
-    df_d1.sort(key=lambda x: x['timestamp'])
+    def _convert_df_to_utc_list(raw_df):
+        res = []
+        for idx, r in raw_df.iterrows():
+            idx_utc = idx.tz_convert('UTC') if getattr(idx, 'tzinfo', None) else idx
+            res.append({
+                'timestamp': idx_utc.isoformat(),
+                'open': float(r['Open']), 'high': float(r['High']),
+                'low': float(r['Low']), 'close': float(r['Close']),
+                'volume': float(r.get('Volume', 0))
+            })
+        res.sort(key=lambda x: x['timestamp'])
+        return res
 
-    df_h4 = []
-    for idx, r in df_h4_raw.iterrows():
-        df_h4.append({
-            'timestamp': idx.isoformat(),
-            'open': float(r['Open']), 'high': float(r['High']),
-            'low': float(r['Low']), 'close': float(r['Close']),
-            'volume': float(r.get('Volume', 0))
-        })
-    df_h4.sort(key=lambda x: x['timestamp'])
-
-    df_1h = []
-    for idx, r in df_1h_raw.iterrows():
-        df_1h.append({
-            'timestamp': idx.isoformat(),
-            'open': float(r['Open']), 'high': float(r['High']),
-            'low': float(r['Low']), 'close': float(r['Close']),
-            'volume': float(r.get('Volume', 0))
-        })
-    df_1h.sort(key=lambda x: x['timestamp'])
-
-    df_30m = []
-    for idx, r in df_30m_raw.iterrows():
-        df_30m.append({
-            'timestamp': idx.isoformat(),
-            'open': float(r['Open']), 'high': float(r['High']),
-            'low': float(r['Low']), 'close': float(r['Close']),
-            'volume': float(r.get('Volume', 0))
-        })
-    df_30m.sort(key=lambda x: x['timestamp'])
-
-    df_15m = []
-    for idx, r in df_15m_raw.iterrows():
-        df_15m.append({
-            'timestamp': idx.isoformat(),
-            'open': float(r['Open']), 'high': float(r['High']),
-            'low': float(r['Low']), 'close': float(r['Close']),
-            'volume': float(r.get('Volume', 0))
-        })
-    df_15m.sort(key=lambda x: x['timestamp'])
-
-    df_5m = []
-    for idx, r in df_5m_raw.iterrows():
-        df_5m.append({
-            'timestamp': idx.isoformat(),
-            'open': float(r['Open']), 'high': float(r['High']),
-            'low': float(r['Low']), 'close': float(r['Close']),
-            'volume': float(r.get('Volume', 0))
-        })
-    df_5m.sort(key=lambda x: x['timestamp'])
+    df_d1 = _convert_df_to_utc_list(df_d1_raw)
+    df_h4 = _convert_df_to_utc_list(df_h4_raw)
+    df_1h = _convert_df_to_utc_list(df_1h_raw)
+    df_30m = _convert_df_to_utc_list(df_30m_raw)
+    df_15m = _convert_df_to_utc_list(df_15m_raw)
+    df_5m = _convert_df_to_utc_list(df_5m_raw)
 
     start_date = df_5m[0]['timestamp'][:10]
     end_date = df_5m[-1]['timestamp'][:10]
-    print(f"  * Periode: {start_date} s/d {end_date}")
+    print(f"  * Periode: {start_date} s/d {end_date} (True UTC Synchronized)")
     print(f"  * Candle D1  : {len(df_d1)} batang")
+
     print(f"  * Candle H4  : {len(df_h4)} batang")
     print(f"  * Candle H1  : {len(df_1h)} batang")
     print(f"  * Candle M30 : {len(df_30m)} batang")
@@ -145,17 +105,19 @@ async def run_2month_backtest():
         
         # Determine specific outcome
         outcome_detail = status
-        if status == 'WIN':
-            if trade.get('partial_taken', False) and abs(pnl - trade.get('locked_pnl', 0.0)) < 0.05:
+        if status in ['WIN', 'PARTIAL_WIN']:
+            stats["WIN"] = stats.get("WIN", 0) + (1 if status == 'PARTIAL_WIN' else 0)
+            if status == 'PARTIAL_WIN' or (trade.get('partial_taken', False) and abs(pnl - trade.get('locked_pnl', 0.0)) < 0.05):
                 outcome_detail = "TP1_HIT_RUNNER_BE"
-                stats["TP1_RUNNER_BE"] += 1
+                stats["TP1_RUNNER_BE"] = stats.get("TP1_RUNNER_BE", 0) + 1
             else:
                 outcome_detail = "TP2_FULL_HIT"
-                stats["TP2_FULL"] += 1
+                stats["TP2_FULL"] = stats.get("TP2_FULL", 0) + 1
         elif status == 'BREAK_EVEN':
             outcome_detail = "BE_PROTECTED"
         elif status == 'LOSS':
             outcome_detail = "SL_HIT"
+
 
         mfe_pips = abs(float(trade.get('mfe_price', entry_val)) - entry_val) / (0.10 if "XAU" in trade.get('symbol', '') else 0.0001)
         stats["trades"].append({
@@ -386,11 +348,11 @@ async def run_2month_backtest():
 Periode Pengujian      : {start_date} s/d {end_date} (60 Hari)
 Target Asset           : XAU/USD (Gold)
 Timeframe Eksekusi     : M5 (LTF Entry) & M15 (HTF Structure)
-Filter HTF             : H4 & D1 Trend Alignment (No Counter-Trend w/o H4 CHoCH)
-Filter Likuiditas      : Liquidity Sweep (Asian High/Low, PDH/PDL, EQH/EQL, Swings)
-Filter Sesi            : London Killzone (14:00-17:00 WIB) & NY Killzone (19:30-22:30 WIB)
-Manajemen Risiko       : Dynamic SL (Sweep Extreme + Buffer), RRR Minimal 1:2
-Eksekusi TP            : TP1 (Kunci 50% Lot & SL -> BE) + TP2 (Runner HTF Liquidity)
+Filter HTF             : H4 & D1 Trend Alignment (Strict Institutional Flow)
+Setup Engine           : Dual SMC (Major Liquidity Sweep Reversal + Trend Continuation)
+Filter Sesi            : London Session (13:00-17:30 WIB) & NY Session (19:30-23:30 WIB)
+Manajemen Risiko       : Dynamic SL (POI Extreme + Buffer 15p, Cap 55p), RRR Minimal 1:1.8
+Eksekusi TP            : TP1 (+75p Kunci Profit 50-70% & SL->BE) + TP2 (+105p Full Runner)
 ----------------------------------------------------------------------
 RINGKASAN HASIL EKSEKUSI:
 ----------------------------------------------------------------------

@@ -67,8 +67,8 @@ def is_killzone_active(dt: Optional[datetime] = None) -> Tuple[bool, str]:
     Check if current UTC/WIB time falls within high-probability Killzones for XAUUSD.
     
     Session Times (WIB = UTC+7):
-    - London Killzone: 14:00 - 17:00 WIB (07:00 - 10:00 UTC)
-    - New York Killzone: 19:30 - 22:30 WIB (12:30 - 15:30 UTC)
+    - London Institutional Session: 13:00 - 17:30 WIB (06:00 - 10:30 UTC)
+    - New York Institutional Session: 19:30 - 23:30 WIB (12:30 - 16:30 UTC)
     
     Outside these hours, signals are strictly ignored.
     """
@@ -85,13 +85,14 @@ def is_killzone_active(dt: Optional[datetime] = None) -> Tuple[bool, str]:
     wib_hour = (hour + 7) % 24
     wib_str = f"{wib_hour:02d}:{minute:02d} WIB ({hour:02d}:{minute:02d} UTC)"
 
-    # London Killzone: 14:00 - 17:00 WIB (07:00 - 10:00 UTC)
-    if 7.0 <= current_time_dec <= 10.0:
-        return True, f"London Killzone (14:00 - 17:00 WIB) [{wib_str}]"
+    # London Killzone: 13:00 - 17:30 WIB (06:00 - 10:30 UTC)
+    if 6.0 <= current_time_dec <= 10.5:
+        return True, f"London Killzone (13:00 - 17:30 WIB) [{wib_str}]"
 
-    # New York Killzone: 19:30 - 22:30 WIB (12:30 - 15:30 UTC)
-    if 12.5 <= current_time_dec <= 15.5:
-        return True, f"New York Killzone (19:30 - 22:30 WIB) [{wib_str}]"
+    # New York Killzone: 19:30 - 23:30 WIB (12:30 - 16:30 UTC)
+    if 12.5 <= current_time_dec <= 16.5:
+        return True, f"New York Killzone (19:30 - 23:30 WIB) [{wib_str}]"
 
-    return False, f"Outside Killzone [{wib_str}] - Setup ignored (Only London 14:00-17:00 WIB & NY 19:30-22:30 WIB)"
+    return False, f"Outside Killzone [{wib_str}] - Setup ignored (Only London 13:00-17:30 WIB & NY 19:30-23:30 WIB)"
+
 
