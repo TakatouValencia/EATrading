@@ -342,47 +342,55 @@ async def run_smc_analysis(tick: dict):
             # Check for Signals ONLY if we don't already have a PENDING or ACTIVE trade for this symbol
             signal = None
             if not trade_manager.has_active_trade(symbol):
-                if allowed:
-                    atr = engine_m15.calculate_atr(period=14)
-                    reversal_patterns = engine_m15.detect_reversal_patterns()
-                    
-                    signal = await signal_generator.evaluate_confluence(
-                        symbol=symbol,
-                        current_price=tick_price,
-                        events=m15_events + (m5_events if m5_events else []),
-                        obs=combined_obs,
-                        fvgs=combined_fvgs,
-                        sweeps=sweeps,
-                        m15_trend=m15_trend,
-                        m5_trend=m5_trend,
-                        htf_trend=h4_trend or h1_trend or m15_trend,
-                        h1_trend=h1_trend,
-                        h4_trend=h4_trend,
-                        d1_trend=d1_trend,
-                        h4_choch=h4_choch,
-                        snr_zones=snr_zones,
-                        snd_zones=snd_zones,
-                        pd_zones=pd_zones,
-                        breakers=combined_breakers,
-                        dxy_trend=dxy_trend,
-                        fibo_ote=fibo_ote,
-                        poc_price=poc_price,
-                        trade_manager=trade_manager,
-                        amd_setups=amd_setups,
-                        atr=atr,
-                        reversal_patterns=reversal_patterns,
-                        db=db,
-                        engine_ltf=engine_m15,
-                        engine_htf=engine_h4 or engine_h1,
-                        qm_patterns=combined_qms,
-                        rbs_sbr=combined_rbs,
-                        h1_obs=h1_obs,
-                        h1_pd_zones=h1_pd,
-                        crt_patterns=combined_crts,
-                        adx_m15=adx_m15,
-                        adx_h1=adx_h1,
-                        liquidity_pools=liquidity_pools
-                    )
+                now_eval_sec = datetime.now().timestamp()
+                if not hasattr(app.state, 'last_signal_eval'):
+                    app.state.last_signal_eval = {}
+                
+                # Throttle evaluating new signals to at least 45 seconds between checks to prevent tick-by-tick noise/repainting
+                if (now_eval_sec - app.state.last_signal_eval.get(symbol, 0)) >= 45:
+                    app.state.last_signal_eval[symbol] = now_eval_sec
+                    if allowed:
+                        atr = engine_m15.calculate_atr(period=14)
+                        reversal_patterns = engine_m15.detect_reversal_patterns()
+                        
+                        signal = await signal_generator.evaluate_confluence(
+                            symbol=symbol,
+                            current_price=tick_price,
+                            events=m15_events + (m5_events if m5_events else []),
+                            obs=combined_obs,
+                            fvgs=combined_fvgs,
+                            sweeps=sweeps,
+                            m15_trend=m15_trend,
+                            m5_trend=m5_trend,
+                            htf_trend=h4_trend or h1_trend or m15_trend,
+                            h1_trend=h1_trend,
+                            h4_trend=h4_trend,
+                            d1_trend=d1_trend,
+                            h4_choch=h4_choch,
+                            snr_zones=snr_zones,
+                            snd_zones=snd_zones,
+                            pd_zones=pd_zones,
+                            breakers=combined_breakers,
+                            dxy_trend=dxy_trend,
+                            fibo_ote=fibo_ote,
+                            poc_price=poc_price,
+                            trade_manager=trade_manager,
+                            amd_setups=amd_setups,
+                            atr=atr,
+                            reversal_patterns=reversal_patterns,
+                            db=db,
+                            engine_ltf=engine_m15,
+                            engine_htf=engine_h4 or engine_h1,
+                            qm_patterns=combined_qms,
+                            rbs_sbr=combined_rbs,
+                            h1_obs=h1_obs,
+                            h1_pd_zones=h1_pd,
+                            crt_patterns=combined_crts,
+                            adx_m15=adx_m15,
+                            adx_h1=adx_h1,
+                            liquidity_pools=liquidity_pools,
+                            current_time_str=tick_time_obj.isoformat()
+                        )
                     # Process and register new signal atomically
                     if signal and signal.get("status") not in ["SKIPPED", "REJECTED"]:
                         is_identical = False

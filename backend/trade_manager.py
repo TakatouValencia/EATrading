@@ -240,14 +240,14 @@ class TradeManager:
 
                 # -------------------------------------------------------------
                 # Multi-Stage Risk Management & Profit Banking:
-                # Stage 1: +40 pips ($4.00 on Gold) -> Trailing Stop moved to Break-Even (+0.5 pip)
-                # Stage 2: +70 pips ($7.00 on Gold) -> Bank 50% lot profit & protect remainder
-                # Stage 3: Target TP (>100 - 180 pips) -> Full Institutional Winner
+                # Stage 1: +30 pips ($3.00 on Gold) -> Trailing Stop moved to Break-Even (+0.5 pip)
+                # Stage 2: +50 pips ($5.00 on Gold) -> Bank 50% lot profit & lock +15p buffer
+                # Stage 3: Target TP (100 pips) -> Full Institutional Runner
                 # -------------------------------------------------------------
-                be_trigger_dist = 40.0 * pip_unit if is_xau else 0.0040 # 40 pips ($4.00 on Gold)
-                partial_dist = 70.0 * pip_unit if is_xau else 0.0070    # 70 pips ($7.00 on Gold)
+                be_trigger_dist = 30.0 * pip_unit if is_xau else 0.0030 # 30 pips ($3.00 on Gold)
+                partial_dist = 50.0 * pip_unit if is_xau else 0.0050    # 50 pips ($5.00 on Gold)
 
-                # Stage 1: Auto Break-Even Protection at +40 pips
+                # Stage 1: Auto Break-Even Protection at +30 pips
                 if favorable_move >= be_trigger_dist and not trade.get('is_be', False):
 
                     new_sl = round(entry + (0.5 * pip_unit) if is_buy else entry - (0.5 * pip_unit), 2 if is_xau else 5)
@@ -263,12 +263,16 @@ class TradeManager:
                         else:
                             self.on_be_triggered(trade, new_sl)
 
-                # Stage 2: Bank 50% Profit at +70 pips / 1.0R
+                # Stage 2: Bank 50% Profit at +50 pips / TP1
                 if favorable_move >= partial_dist and not trade.get('partial_taken', False):
                     trade['partial_taken'] = True
                     locked_r = 0.5 * (favorable_move / risk_dist)
                     trade['locked_pnl'] = locked_r
-                    print(f"[PARTIAL PROFIT (+70p)] {symbol} banked 50% lot (+{locked_r:.2f}R). Runner chasing Target TP.")
+                    new_sl = round(entry + (1.5 * pip_unit) if is_buy else entry - (1.5 * pip_unit), 2 if is_xau else 5)
+                    trade['sl_price'] = new_sl
+                    trade['sl'] = new_sl
+                    sl = new_sl
+                    print(f"[PARTIAL PROFIT (+50p)] {symbol} banked 50% lot (+{locked_r:.2f}R). SL trailed to +15p. Runner chasing 100p TP.")
 
                 # -------------------------------------------------------------
                 # Stage 3: Check for Target TP / SL

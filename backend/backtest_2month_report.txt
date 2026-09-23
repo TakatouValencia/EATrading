@@ -7,57 +7,80 @@ Target Asset           : XAU/USD (Gold)
 Timeframe Eksekusi     : M5 (LTF Entry) & M15 (HTF Structure)
 Filter HTF             : H4 & D1 Trend Alignment (Strict Institutional Flow)
 Setup Engine           : Dual SMC (Major Liquidity Sweep Reversal + Trend Continuation)
-Filter Sesi            : London Session (13:00-17:30 WIB) & NY Session (19:30-23:30 WIB)
+Filter Sesi            : Asian (07:00-12:00 WIB), London (12:00-18:00 WIB), NY (18:00-01:00 WIB)
 Manajemen Risiko       : Dynamic SL (POI Extreme + Buffer 15p, Cap 55p), RRR Minimal 1:1.8
-Eksekusi TP            : TP1 (+75p Kunci Profit 50-70% & SL->BE) + TP2 (+105p Full Runner)
+Eksekusi TP            : TP1 (+50p Kunci Profit 50% & SL->BE+15p) + TP2 (+100p Full Runner)
 ----------------------------------------------------------------------
 RINGKASAN HASIL EKSEKUSI:
 ----------------------------------------------------------------------
-Total Setup Selesai    : 26 Trade
-- Total Take Profit    : 7 Trade (WIN)
-    * TP2 Full Runner  : 4 Trade (Mencapai target runner maksimal)
-    * TP1 Secured + BE : 3 Trade (Kunci profit TP1, runner ditutup di BE)
-- Total Stop Loss (SL) : 12 Trade (LOSS)
-- Total Break-Even (BE): 7 Trade (0 Loss, terlindungi BE sebelum TP1)
+Total Setup Selesai    : 49 Trade
+- Total Take Profit    : 18 Trade (WIN)
+    * TP2 Full Runner  : 9 Trade (Mencapai target runner maksimal)
+    * TP1 Secured + BE : 9 Trade (Kunci profit TP1, runner ditutup di BE)
+- Total Stop Loss (SL) : 18 Trade (LOSS)
+- Total Break-Even (BE): 13 Trade (0 Loss, terlindungi BE sebelum TP1)
 - Cancelled / Expired  : 0 Order
 - Missed Order         : 0 Order
 ----------------------------------------------------------------------
 METRIK PERFORMA & WIN RATE:
 ----------------------------------------------------------------------
-Win Rate (Decisive)    : 36.84% (WIN vs LOSS)
-Win Rate (Total Setup) : 26.92% (WIN / Total Selesai)
-Total Net Profit       : +0.49 R
-Gross Profit           : +12.49 R
-Gross Loss             : -12.00 R
-Profit Factor          : 1.04
-Max Drawdown           : 4.28 R
+Win Rate (Decisive)    : 50.00% (WIN vs LOSS)
+Win Rate (Total Setup) : 36.73% (WIN / Total Selesai)
+Total Net Profit       : +3.61 R
+Gross Profit           : +21.61 R
+Gross Loss             : -18.00 R
+Profit Factor          : 1.20
+Max Drawdown           : 6.88 R
 Rata-rata RRR TP1      : 1 : 2.0+ (Sesuai Syarat Minimal 1:2)
 ======================================================================
 DAFTAR TRANSAKSI LENGKAP:
 ======================================================================
- 1. [2026-07-17T06:40] SELL @ 4000.00 | SL: 4005.50 (-55.0p) | TP: 3992.50 (+75.0p) | Max Profit (MFE): +2.0p | Status: SL_HIT             | PnL: -1.00R
- 2. [2026-07-22T07:15] BUY  @ 4123.30 | SL: 4117.80 (-55.0p) | TP: 4130.80 (+75.0p) | Max Profit (MFE): +41.0p | Status: BE_PROTECTED       | PnL: +0.00R
- 3. [2026-07-23T09:00] BUY  @ 4101.90 | SL: 4096.40 (-55.0p) | TP: 4109.40 (+75.0p) | Max Profit (MFE): +0.0p | Status: SL_HIT             | PnL: -1.00R
- 4. [2026-07-27T09:45] BUY  @ 4099.40 | SL: 4094.40 (-50.0p) | TP: 4106.90 (+75.0p) | Max Profit (MFE): +33.0p | Status: SL_HIT             | PnL: -1.00R
- 5. [2026-07-29T09:25] SELL @ 4092.60 | SL: 4097.60 (-50.0p) | TP: 4085.10 (+75.0p) | Max Profit (MFE): +86.0p | Status: TP1_HIT_RUNNER_BE  | PnL: +0.72R
- 6. [2026-07-31T06:05] BUY  @ 4140.00 | SL: 4134.50 (-55.0p) | TP: 4147.50 (+75.0p) | Max Profit (MFE): +53.0p | Status: BE_PROTECTED       | PnL: +0.00R
- 7. [2026-08-03T07:30] BUY  @ 4115.20 | SL: 4109.70 (-55.0p) | TP: 4122.70 (+75.0p) | Max Profit (MFE): +38.0p | Status: SL_HIT             | PnL: -1.00R
- 8. [2026-08-06T06:10] BUY  @ 4319.30 | SL: 4315.80 (-35.0p) | TP: 4326.80 (+75.0p) | Max Profit (MFE): +8.0p | Status: SL_HIT             | PnL: -1.00R
- 9. [2026-08-06T13:25] BUY  @ 4305.90 | SL: 4300.40 (-55.0p) | TP: 4313.40 (+75.0p) | Max Profit (MFE): +179.0p | Status: TP2_FULL_HIT       | PnL: +2.58R
-10. [2026-08-06T16:30] BUY  @ 4290.30 | SL: 4284.80 (-55.0p) | TP: 4297.80 (+75.0p) | Max Profit (MFE): +110.0p | Status: TP2_FULL_HIT       | PnL: +1.89R
-11. [2026-08-07T14:05] BUY  @ 4397.10 | SL: 4391.60 (-55.0p) | TP: 4404.60 (+75.0p) | Max Profit (MFE): +44.0p | Status: BE_PROTECTED       | PnL: +0.00R
-12. [2026-08-11T06:05] BUY  @ 4442.00 | SL: 4436.50 (-55.0p) | TP: 4449.50 (+75.0p) | Max Profit (MFE): +4.0p | Status: SL_HIT             | PnL: -1.00R
-13. [2026-08-11T08:05] BUY  @ 4424.80 | SL: 4419.30 (-55.0p) | TP: 4432.30 (+75.0p) | Max Profit (MFE): +14.0p | Status: SL_HIT             | PnL: -1.00R
-14. [2026-08-11T08:35] BUY  @ 4433.30 | SL: 4427.80 (-55.0p) | TP: 4440.80 (+75.0p) | Max Profit (MFE): +22.0p | Status: SL_HIT             | PnL: -1.00R
-15. [2026-08-13T06:45] BUY  @ 4435.10 | SL: 4429.60 (-55.0p) | TP: 4442.60 (+75.0p) | Max Profit (MFE): +35.0p | Status: SL_HIT             | PnL: -1.00R
-16. [2026-08-13T08:25] BUY  @ 4429.20 | SL: 4423.70 (-55.0p) | TP: 4436.70 (+75.0p) | Max Profit (MFE): +65.0p | Status: BE_PROTECTED       | PnL: +0.00R
-17. [2026-08-13T16:25] BUY  @ 4419.40 | SL: 4413.90 (-55.0p) | TP: 4426.90 (+75.0p) | Max Profit (MFE): +106.0p | Status: TP2_FULL_HIT       | PnL: +1.62R
-18. [2026-08-18T16:00] BUY  @ 4423.30 | SL: 4417.80 (-55.0p) | TP: 4430.80 (+75.0p) | Max Profit (MFE): +37.0p | Status: SL_HIT             | PnL: -1.00R
-19. [2026-08-21T12:55] BUY  @ 4634.70 | SL: 4631.20 (-35.0p) | TP: 4642.20 (+75.0p) | Max Profit (MFE): +100.0p | Status: TP1_HIT_RUNNER_BE  | PnL: +1.31R
-20. [2026-08-24T09:45] BUY  @ 4700.40 | SL: 4694.90 (-55.0p) | TP: 4707.90 (+75.0p) | Max Profit (MFE): +66.0p | Status: BE_PROTECTED       | PnL: +0.00R
-21. [2026-08-24T16:10] BUY  @ 4714.80 | SL: 4709.30 (-55.0p) | TP: 4722.30 (+75.0p) | Max Profit (MFE): +48.0p | Status: BE_PROTECTED       | PnL: +0.00R
-22. [2026-08-25T14:00] BUY  @ 4674.30 | SL: 4668.80 (-55.0p) | TP: 4681.80 (+75.0p) | Max Profit (MFE): +81.0p | Status: TP1_HIT_RUNNER_BE  | PnL: +0.74R
-23. [2026-08-26T06:45] BUY  @ 4691.50 | SL: 4686.50 (-50.0p) | TP: 4699.00 (+75.0p) | Max Profit (MFE): +42.0p | Status: BE_PROTECTED       | PnL: +0.00R
-24. [2026-08-26T09:45] BUY  @ 4680.40 | SL: 4675.40 (-50.0p) | TP: 4687.90 (+75.0p) | Max Profit (MFE): +10.0p | Status: SL_HIT             | PnL: -1.00R
-25. [2026-08-27T13:25] SELL @ 4643.10 | SL: 4646.60 (-35.0p) | TP: 4635.60 (+75.0p) | Max Profit (MFE): +149.0p | Status: TP2_FULL_HIT       | PnL: +3.63R
-26. [2026-08-27T16:10] SELL @ 4658.90 | SL: 4664.40 (-55.0p) | TP: 4651.40 (+75.0p) | Max Profit (MFE): +24.0p | Status: SL_HIT             | PnL: -1.00R
+ 1. [2026-07-17T03:30] SELL @ 4001.30 | SL: 4006.80 (-55.0p) | TP: 3996.30 (+50.0p) | Max Profit (MFE): +111.0p | Status: TP2_FULL_HIT       | PnL: +1.38R
+ 2. [2026-07-17T06:40] SELL @ 4000.00 | SL: 4005.50 (-55.0p) | TP: 3995.00 (+50.0p) | Max Profit (MFE): +2.0p | Status: SL_HIT             | PnL: -1.00R
+ 3. [2026-07-17T16:35] SELL @ 4018.40 | SL: 4023.40 (-50.0p) | TP: 4013.40 (+50.0p) | Max Profit (MFE): +9.0p | Status: SL_HIT             | PnL: -1.00R
+ 4. [2026-07-22T07:15] BUY  @ 4123.30 | SL: 4117.80 (-55.0p) | TP: 4128.30 (+50.0p) | Max Profit (MFE): +36.0p | Status: BE_PROTECTED       | PnL: +0.00R
+ 5. [2026-07-23T09:00] BUY  @ 4101.90 | SL: 4096.40 (-55.0p) | TP: 4106.90 (+50.0p) | Max Profit (MFE): +0.0p | Status: SL_HIT             | PnL: -1.00R
+ 6. [2026-07-23T11:50] BUY  @ 4087.30 | SL: 4081.80 (-55.0p) | TP: 4092.30 (+50.0p) | Max Profit (MFE): +20.0p | Status: SL_HIT             | PnL: -1.00R
+ 7. [2026-07-27T04:50] BUY  @ 4092.50 | SL: 4089.00 (-35.0p) | TP: 4097.50 (+50.0p) | Max Profit (MFE): +45.0p | Status: BE_PROTECTED       | PnL: +0.00R
+ 8. [2026-07-27T09:45] BUY  @ 4099.40 | SL: 4094.40 (-50.0p) | TP: 4104.40 (+50.0p) | Max Profit (MFE): +33.0p | Status: BE_PROTECTED       | PnL: +0.00R
+ 9. [2026-07-27T16:45] SELL @ 4085.80 | SL: 4091.30 (-55.0p) | TP: 4080.80 (+50.0p) | Max Profit (MFE): +107.0p | Status: TP2_FULL_HIT       | PnL: +1.72R
+10. [2026-07-28T16:45] SELL @ 4038.10 | SL: 4043.60 (-55.0p) | TP: 4033.10 (+50.0p) | Max Profit (MFE): +106.0p | Status: TP2_FULL_HIT       | PnL: +1.55R
+11. [2026-07-29T02:50] SELL @ 4029.50 | SL: 4035.00 (-55.0p) | TP: 4024.50 (+50.0p) | Max Profit (MFE): +100.0p | Status: TP2_FULL_HIT       | PnL: +1.51R
+12. [2026-07-29T09:25] SELL @ 4092.60 | SL: 4097.60 (-50.0p) | TP: 4087.60 (+50.0p) | Max Profit (MFE): +34.0p | Status: BE_PROTECTED       | PnL: +0.00R
+13. [2026-07-31T03:30] BUY  @ 4134.90 | SL: 4131.00 (-39.0p) | TP: 4139.90 (+50.0p) | Max Profit (MFE): +25.0p | Status: SL_HIT             | PnL: -1.00R
+14. [2026-07-31T04:20] BUY  @ 4136.30 | SL: 4131.60 (-47.0p) | TP: 4141.30 (+50.0p) | Max Profit (MFE): +32.0p | Status: BE_PROTECTED       | PnL: +0.00R
+15. [2026-07-31T04:50] BUY  @ 4135.50 | SL: 4132.00 (-35.0p) | TP: 4140.50 (+50.0p) | Max Profit (MFE): +58.0p | Status: TP1_HIT_RUNNER_BE  | PnL: +0.73R
+16. [2026-08-03T05:25] BUY  @ 4115.50 | SL: 4111.60 (-39.0p) | TP: 4120.50 (+50.0p) | Max Profit (MFE): +2.0p | Status: SL_HIT             | PnL: -1.00R
+17. [2026-08-03T07:30] BUY  @ 4115.20 | SL: 4109.70 (-55.0p) | TP: 4120.20 (+50.0p) | Max Profit (MFE): +38.0p | Status: BE_PROTECTED       | PnL: +0.00R
+18. [2026-08-05T10:50] BUY  @ 4215.50 | SL: 4210.00 (-55.0p) | TP: 4220.50 (+50.0p) | Max Profit (MFE): +104.0p | Status: TP2_FULL_HIT       | PnL: +1.38R
+19. [2026-08-06T05:35] BUY  @ 4321.00 | SL: 4315.50 (-55.0p) | TP: 4326.00 (+50.0p) | Max Profit (MFE): +65.0p | Status: TP1_HIT_RUNNER_BE  | PnL: +0.59R
+20. [2026-08-06T06:10] BUY  @ 4319.30 | SL: 4315.80 (-35.0p) | TP: 4324.30 (+50.0p) | Max Profit (MFE): +8.0p | Status: SL_HIT             | PnL: -1.00R
+21. [2026-08-06T13:25] BUY  @ 4305.90 | SL: 4300.40 (-55.0p) | TP: 4310.90 (+50.0p) | Max Profit (MFE): +179.0p | Status: TP2_FULL_HIT       | PnL: +1.39R
+22. [2026-08-07T14:05] BUY  @ 4397.10 | SL: 4391.60 (-55.0p) | TP: 4402.10 (+50.0p) | Max Profit (MFE): +44.0p | Status: BE_PROTECTED       | PnL: +0.00R
+23. [2026-08-10T01:55] BUY  @ 4383.00 | SL: 4377.50 (-55.0p) | TP: 4388.00 (+50.0p) | Max Profit (MFE): +95.0p | Status: TP1_HIT_RUNNER_BE  | PnL: +0.47R
+24. [2026-08-10T03:15] BUY  @ 4384.20 | SL: 4378.70 (-55.0p) | TP: 4389.20 (+50.0p) | Max Profit (MFE): +61.0p | Status: TP1_HIT_RUNNER_BE  | PnL: +0.55R
+25. [2026-08-10T11:25] BUY  @ 4394.00 | SL: 4388.50 (-55.0p) | TP: 4399.00 (+50.0p) | Max Profit (MFE): +45.0p | Status: BE_PROTECTED       | PnL: +0.00R
+26. [2026-08-11T06:05] BUY  @ 4442.00 | SL: 4436.50 (-55.0p) | TP: 4447.00 (+50.0p) | Max Profit (MFE): +4.0p | Status: SL_HIT             | PnL: -1.00R
+27. [2026-08-11T08:05] BUY  @ 4424.80 | SL: 4419.30 (-55.0p) | TP: 4429.80 (+50.0p) | Max Profit (MFE): +14.0p | Status: SL_HIT             | PnL: -1.00R
+28. [2026-08-11T08:35] BUY  @ 4433.30 | SL: 4427.80 (-55.0p) | TP: 4438.30 (+50.0p) | Max Profit (MFE): +22.0p | Status: SL_HIT             | PnL: -1.00R
+29. [2026-08-12T04:25] BUY  @ 4459.10 | SL: 4453.60 (-55.0p) | TP: 4464.10 (+50.0p) | Max Profit (MFE): +33.0p | Status: BE_PROTECTED       | PnL: +0.00R
+30. [2026-08-13T04:25] BUY  @ 4456.20 | SL: 4450.70 (-55.0p) | TP: 4461.20 (+50.0p) | Max Profit (MFE): +90.0p | Status: TP1_HIT_RUNNER_BE  | PnL: +0.56R
+31. [2026-08-13T06:45] BUY  @ 4435.10 | SL: 4429.60 (-55.0p) | TP: 4440.10 (+50.0p) | Max Profit (MFE): +35.0p | Status: BE_PROTECTED       | PnL: +0.00R
+32. [2026-08-13T08:25] BUY  @ 4429.20 | SL: 4423.70 (-55.0p) | TP: 4434.20 (+50.0p) | Max Profit (MFE): +65.0p | Status: TP1_HIT_RUNNER_BE  | PnL: +0.56R
+33. [2026-08-17T11:05] BUY  @ 4458.80 | SL: 4454.90 (-39.0p) | TP: 4463.80 (+50.0p) | Max Profit (MFE): +8.0p | Status: SL_HIT             | PnL: -1.00R
+34. [2026-08-18T03:00] BUY  @ 4459.50 | SL: 4454.00 (-55.0p) | TP: 4464.50 (+50.0p) | Max Profit (MFE): +4.0p | Status: SL_HIT             | PnL: -1.00R
+35. [2026-08-18T16:00] BUY  @ 4423.30 | SL: 4417.80 (-55.0p) | TP: 4428.30 (+50.0p) | Max Profit (MFE): +37.0p | Status: BE_PROTECTED       | PnL: +0.00R
+36. [2026-08-19T05:25] BUY  @ 4398.90 | SL: 4393.40 (-55.0p) | TP: 4403.90 (+50.0p) | Max Profit (MFE): +4.0p | Status: SL_HIT             | PnL: -1.00R
+37. [2026-08-20T01:20] BUY  @ 4559.40 | SL: 4553.90 (-55.0p) | TP: 4564.40 (+50.0p) | Max Profit (MFE): +13.0p | Status: SL_HIT             | PnL: -1.00R
+38. [2026-08-20T12:15] BUY  @ 4522.50 | SL: 4517.00 (-55.0p) | TP: 4527.50 (+50.0p) | Max Profit (MFE): +9.0p | Status: SL_HIT             | PnL: -1.00R
+39. [2026-08-21T12:55] BUY  @ 4634.70 | SL: 4631.20 (-35.0p) | TP: 4639.70 (+50.0p) | Max Profit (MFE): +100.0p | Status: TP2_FULL_HIT       | PnL: +2.40R
+40. [2026-08-24T09:45] BUY  @ 4700.40 | SL: 4694.90 (-55.0p) | TP: 4705.40 (+50.0p) | Max Profit (MFE): +66.0p | Status: TP1_HIT_RUNNER_BE  | PnL: +0.56R
+41. [2026-08-24T16:10] BUY  @ 4714.80 | SL: 4709.30 (-55.0p) | TP: 4719.80 (+50.0p) | Max Profit (MFE): +48.0p | Status: BE_PROTECTED       | PnL: +0.00R
+42. [2026-08-25T02:20] BUY  @ 4710.70 | SL: 4705.20 (-55.0p) | TP: 4715.70 (+50.0p) | Max Profit (MFE): +23.0p | Status: SL_HIT             | PnL: -1.00R
+43. [2026-08-25T14:00] BUY  @ 4674.30 | SL: 4668.80 (-55.0p) | TP: 4679.30 (+50.0p) | Max Profit (MFE): +81.0p | Status: TP1_HIT_RUNNER_BE  | PnL: +0.57R
+44. [2026-08-26T01:35] BUY  @ 4701.90 | SL: 4696.40 (-55.0p) | TP: 4706.90 (+50.0p) | Max Profit (MFE): +20.0p | Status: SL_HIT             | PnL: -1.00R
+45. [2026-08-26T06:45] BUY  @ 4691.50 | SL: 4686.50 (-50.0p) | TP: 4696.50 (+50.0p) | Max Profit (MFE): +42.0p | Status: BE_PROTECTED       | PnL: +0.00R
+46. [2026-08-26T09:45] BUY  @ 4680.40 | SL: 4675.40 (-50.0p) | TP: 4685.40 (+50.0p) | Max Profit (MFE): +10.0p | Status: SL_HIT             | PnL: -1.00R
+47. [2026-08-27T02:30] SELL @ 4683.90 | SL: 4689.40 (-55.0p) | TP: 4678.90 (+50.0p) | Max Profit (MFE): +58.0p | Status: TP1_HIT_RUNNER_BE  | PnL: +0.53R
+48. [2026-08-27T03:35] SELL @ 4686.90 | SL: 4691.80 (-49.0p) | TP: 4681.90 (+50.0p) | Max Profit (MFE): +119.0p | Status: TP2_FULL_HIT       | PnL: +1.60R
+49. [2026-08-27T13:25] SELL @ 4643.10 | SL: 4646.60 (-35.0p) | TP: 4638.10 (+50.0p) | Max Profit (MFE): +149.0p | Status: TP2_FULL_HIT       | PnL: +3.56R

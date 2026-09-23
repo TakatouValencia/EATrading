@@ -85,14 +85,18 @@ def is_killzone_active(dt: Optional[datetime] = None) -> Tuple[bool, str]:
     wib_hour = (hour + 7) % 24
     wib_str = f"{wib_hour:02d}:{minute:02d} WIB ({hour:02d}:{minute:02d} UTC)"
 
-    # London Killzone: 13:00 - 17:30 WIB (06:00 - 10:30 UTC)
-    if 6.0 <= current_time_dec <= 10.5:
-        return True, f"London Killzone (13:00 - 17:30 WIB) [{wib_str}]"
+    # Session Times (WIB = UTC+7):
+    # - Asian Institutional Session: 07:00 - 12:00 WIB (00:00 - 05:00 UTC)
+    # - London Institutional Session: 12:00 - 18:00 WIB (05:00 - 11:00 UTC)
+    # - New York Institutional Session: 18:00 - 01:00 WIB (11:00 - 18:00 UTC)
+    # - Rollover & Spread Protection: 01:00 - 07:00 WIB (18:00 - 24:00 UTC) - PAUSED
+    if 0.0 <= current_time_dec < 5.0:
+        return True, f"Asian Institutional Session (07:00 - 12:00 WIB) [{wib_str}]"
+    elif 5.0 <= current_time_dec < 11.0:
+        return True, f"London Institutional Session (12:00 - 18:00 WIB) [{wib_str}]"
+    elif 11.0 <= current_time_dec <= 18.0:
+        return True, f"New York Institutional Session (18:00 - 01:00 WIB) [{wib_str}]"
 
-    # New York Killzone: 19:30 - 23:30 WIB (12:30 - 16:30 UTC)
-    if 12.5 <= current_time_dec <= 16.5:
-        return True, f"New York Killzone (19:30 - 23:30 WIB) [{wib_str}]"
-
-    return False, f"Outside Killzone [{wib_str}] - Setup ignored (Only London 13:00-17:30 WIB & NY 19:30-23:30 WIB)"
+    return False, f"Rollover / Pre-Asia Twilight [{wib_str}] - Setup paused for spread protection (Active 07:00-01:00 WIB)"
 
 

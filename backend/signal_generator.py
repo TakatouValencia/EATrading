@@ -365,19 +365,19 @@ class SignalGenerator:
                 return None
 
             # -------------------------------------------------------------
-            # RULE 6: Take Profit Targets (TP1: +75p Partial Banking, TP2: +105p Full Runner)
+            # RULE 6: Take Profit Targets (TP1: +50p Profit Banking, TP2: +100p Runner)
             # -------------------------------------------------------------
-            default_tp1_dist = 7.5 if is_xau else 0.0075 # 75 pips ($7.50)
-            default_tp2_dist = 10.5 if is_xau else 0.0105 # 105 pips ($10.50) - strictly > 100 pips
+            default_tp1_dist = 5.0 if is_xau else 0.0050 # 50 pips ($5.00) - 60%+ realistic hit rate
+            default_tp2_dist = 10.0 if is_xau else 0.0100 # 100 pips ($10.00) - institutional runner target
 
             tp_candidates = []
             if is_bullish:
                 if liquidity_pools:
                     for p_key in ['asian_high', 'pdh']:
-                        if liquidity_pools.get(p_key) and entry_target + 10.0 <= liquidity_pools[p_key] <= entry_target + 11.5:
+                        if liquidity_pools.get(p_key) and entry_target + 8.5 <= liquidity_pools[p_key] <= entry_target + 11.5:
                             tp_candidates.append(liquidity_pools[p_key])
                     for eqh in liquidity_pools.get('eqh', []):
-                        if entry_target + 10.0 <= eqh['level'] <= entry_target + 11.5:
+                        if entry_target + 8.5 <= eqh['level'] <= entry_target + 11.5:
                             tp_candidates.append(eqh['level'])
 
                 tp1_target = round(entry_target + default_tp1_dist, 2 if is_xau else 5)
@@ -387,10 +387,10 @@ class SignalGenerator:
             else:
                 if liquidity_pools:
                     for p_key in ['asian_low', 'pdl']:
-                        if liquidity_pools.get(p_key) and entry_target - 11.5 <= liquidity_pools[p_key] <= entry_target - 10.0:
+                        if liquidity_pools.get(p_key) and entry_target - 11.5 <= liquidity_pools[p_key] <= entry_target - 8.5:
                             tp_candidates.append(liquidity_pools[p_key])
                     for eql in liquidity_pools.get('eql', []):
-                        if entry_target - 11.5 <= eql['level'] <= entry_target - 10.0:
+                        if entry_target - 11.5 <= eql['level'] <= entry_target - 8.5:
                             tp_candidates.append(eql['level'])
 
                 tp1_target = round(entry_target - default_tp1_dist, 2 if is_xau else 5)
@@ -476,7 +476,7 @@ class SignalGenerator:
         reasons_list = [ui_badge] + best['reasons']
         reasons_list.append(f"Target TP1 (+{tp1_pips:.0f}p): {tp1_val} (Kunci Profit 50-70%)")
         reasons_list.append(f"Target TP2 (+{tp2_pips:.0f}p): {tp2_val} (Full Runner HTF Liquidity)")
-        reasons_list.append("Auto Break-Even: Aktif di +50p (Proteksi Modal 100% Risk-Free)")
+        reasons_list.append("Auto Break-Even: Aktif di +30p (Proteksi Modal 100% Risk-Free)")
         reasons_list.append(f"SMC Grade: {best['grade']} (RRR TP2 1:{best['rr_ratio']})")
 
         signal = {
