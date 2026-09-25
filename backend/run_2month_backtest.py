@@ -380,7 +380,7 @@ DAFTAR TRANSAKSI LENGKAP:
 ======================================================================
 """
     for idx_t, t in enumerate(stats['trades'], 1):
-        report += f"{idx_t:>2}. [{t['timestamp']}] {t['type']:<4} @ {t['entry']:.2f} | SL: {t['sl']:.2f} (-{t['sl_pips']:.1f}p) | TP: {t['tp1']:.2f} (+{t['tp1_pips']:.1f}p) | Max Profit (MFE): +{t.get('mfe_pips', 0):.1f}p | Status: {t['outcome']:<18} | PnL: {t['pnl']:+5.2f}R\n"
+        report += f"{idx_t:>2}. [{t['timestamp']}] {t['type']:<4} @ {t['entry']:.2f} | SL: {t['sl']:.2f} (-{t['sl_pips']:.1f}p) | TP1: {t['tp1']:.2f} (+{t['tp1_pips']:.1f}p) | TP2: {t['tp2']:.2f} (+{t['tp2_pips']:.1f}p) | Max Profit: +{t.get('mfe_pips', 0):.1f}p | Status: {t['outcome']:<18} | PnL: {t['pnl']:+5.2f}R\n"
 
     print(report)
 
