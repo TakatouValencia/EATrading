@@ -107,7 +107,7 @@ class Database:
                 conn = sqlite3.connect(self.db_path)
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
-                cursor.execute('SELECT * FROM signals ORDER BY created_at DESC LIMIT ?', (limit,))
+                cursor.execute("SELECT * FROM signals WHERE status NOT IN ('CANCELLED', 'MISSED') ORDER BY created_at DESC LIMIT ?", (limit,))
                 rows = cursor.fetchall()
                 conn.close()
                 
@@ -129,7 +129,7 @@ class Database:
                 return []
         elif self.supabase:
             try:
-                response = self.supabase.table('signals').select("*").order('created_at', desc=True).limit(limit).execute()
+                response = self.supabase.table('signals').select("*").not_.in_('status', ['CANCELLED', 'MISSED']).order('created_at', desc=True).limit(limit).execute()
                 results = []
                 for r_dict in response.data:
                     r_dict['entry'] = r_dict.pop('entry_price', 0)

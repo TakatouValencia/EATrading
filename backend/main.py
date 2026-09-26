@@ -108,8 +108,8 @@ async def run_smc_analysis(tick: dict):
         else:
             tick_time_obj = tick_time if hasattr(tick_time, 'minute') else datetime.now()
         
-        # Check if Forex/Gold Market is Open (Blocks execution on Saturdays/weekends)
-        is_open, open_reason = is_forex_market_open(tick_time_obj, symbol)
+        # Check if Forex/Gold Market is Open (Blocks execution on Saturdays/weekends and checks live real-world time)
+        is_open, open_reason = is_forex_market_open(tick_time_obj, symbol, check_real_time=True)
         if not is_open:
             now_ts = datetime.now().timestamp()
             if not hasattr(app.state, 'last_closed_log'):
@@ -495,6 +495,11 @@ async def startup_event():
             except Exception as e:
                 print(f"[{sym}] Pre-load warning: {e}")
                 
+        # Weekend Shield check on startup
+        utc_now = datetime.now(timezone.utc)
+        if utc_now.weekday() == 5 or (utc_now.weekday() == 6 and utc_now.hour < 21):
+            print(f"[WEEKEND SHIELD] System active on weekend ({utc_now.strftime('%A %H:%M')} UTC). Live signal emission is PAUSED until market opens Sunday 21:00 UTC.")
+
         # Connect to TwelveData WebSocket
         await data_provider.connect_websocket(symbols)
         
@@ -554,6 +559,20 @@ async def get_signals():
 async def get_stats():
     """Fetch trade statistics (win rate, etc)."""
     return db.get_statistics()
+
+@app.get("/api/weekly-recap")
+async def get_weekly_recap():
+    """Fetch weekly performance summary."""
+    from weekly_recap import get_weekly_recap_data
+    return get_weekly_recap_data()
+
+@app.post("/api/send-weekly-recap")
+async def broadcast_weekly_recap():
+    """Broadcast weekly recap to Discord channel."""
+    from weekly_recap import send_discord_weekly_recap, get_weekly_recap_data
+    recap = get_weekly_recap_data()
+    sent = send_discord_weekly_recap(recap)
+    return {"status": "success" if sent else "failed", "recap": recap}
 
 class SettingsModel(BaseModel):
     account_balance: float

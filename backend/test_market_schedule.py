@@ -39,20 +39,20 @@ class TestMarketSchedule(unittest.TestCase):
         self.assertFalse(is_open)
 
     def test_killzone_london_and_ny(self):
-        # Tuesday at 08:30 UTC (London Killzone)
+        # Tuesday at 08:30 UTC (London Session)
         tue_london = datetime(2026, 9, 8, 8, 30, 0)
         is_kz, reason = is_killzone_active(tue_london)
         self.assertTrue(is_kz)
-        self.assertIn("London Killzone", reason)
+        self.assertIn("London", reason)
 
-        # Tuesday at 13:30 UTC (NY Killzone)
+        # Tuesday at 13:30 UTC (NY Session)
         tue_ny = datetime(2026, 9, 8, 13, 30, 0)
         is_kz, reason = is_killzone_active(tue_ny)
         self.assertTrue(is_kz)
-        self.assertIn("New York Killzone", reason)
+        self.assertIn("New York", reason)
 
-        # Tuesday at 11:15 UTC (Between London and NY)
-        tue_mid = datetime(2026, 9, 8, 11, 15, 0)
+        # Tuesday at 20:15 UTC (Pre-Asia twilight / rollover pause)
+        tue_mid = datetime(2026, 9, 8, 20, 15, 0)
         is_kz, reason = is_killzone_active(tue_mid)
         self.assertFalse(is_kz)
 

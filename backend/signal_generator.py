@@ -110,8 +110,8 @@ class SignalGenerator:
         is_xau = "XAU" in symbol
         pip_unit = 0.10 if is_xau else 0.0001
         
-        # 4. Strict Market Hours & Weekend Shield
-        is_open, open_reason = is_forex_market_open(now_time, symbol)
+        # 4. Strict Market Hours & Weekend Shield (Checks both event time and real-world system UTC)
+        is_open, open_reason = is_forex_market_open(now_time, symbol, check_real_time=(current_time_str is None))
         if not is_open:
             return None
 
@@ -367,9 +367,9 @@ class SignalGenerator:
                 return None
 
             # -------------------------------------------------------------
-            # RULE 6: Take Profit Targets (TP1: +75p Banking, TP2: 150-220p HTF Target)
+            # RULE 6: Take Profit Targets (TP1: +120p Banking, TP2: 180-220p HTF Target)
             # -------------------------------------------------------------
-            default_tp1_dist = 7.5 if is_xau else 0.0075 # 75 pips ($7.50) - First major structural bank
+            default_tp1_dist = 12.0 if is_xau else 0.0120 # 120 pips ($12.00) - High-Reward Structural Bank
             default_tp2_dist = 18.0 if is_xau else 0.0180 # 180 pips ($18.00) - True HTF Swing Expansion
 
             tp_candidates = []
@@ -476,10 +476,10 @@ class SignalGenerator:
 
         ui_badge = "[UI_BADGE:ENTRY ZONE ACTIVE] Sinyal Terkonfirmasi. Siap Eksekusi Langsung."
         reasons_list = [ui_badge] + best['reasons']
-        reasons_list.append(f"Target TP1 (+{tp1_pips:.0f}p): {tp1_val} (Kunci Profit 50-70%)")
-        reasons_list.append(f"Target TP2 (+{tp2_pips:.0f}p): {tp2_val} (Full Runner HTF Liquidity)")
+        reasons_list.append(f"Target Utama TP (+{tp_pips:.0f}p): {tp_val} (Full HTF Institutional Target)")
+        reasons_list.append(f"Securing Bank TP1 (+{tp1_pips:.0f}p): {tp1_val} (Kunci Profit 50%)")
         reasons_list.append("Auto Break-Even: Aktif di +65p (Memberi Ruang Napas Intraday Gold)")
-        reasons_list.append(f"SMC Grade: {best['grade']} (RRR TP2 1:{best['rr_ratio']})")
+        reasons_list.append(f"SMC Grade: {best['grade']} (RRR Target TP 1:{best['rr_ratio']})")
 
         signal = {
             "symbol": symbol,

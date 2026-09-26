@@ -77,8 +77,8 @@ async def send_discord_alert(signal: dict):
             {"name": "🎯 Entry Trigger / Price", "value": f"**{entry_f:.2f}**", "inline": True},
             {"name": "📦 Entry Zone (POI)", "value": f"**{entry_zone}**", "inline": True},
             {"name": "🛑 Stop Loss (SL)", "value": f"**{sl_f:.2f}** (-{sl_pips:.0f} pips | POI Buffer)", "inline": True},
-            {"name": "🎯 Take Profit 1 (TP1)", "value": f"**{tp1_f:.2f}** (+{tp1_pips:.0f}p | Kunci 50%)", "inline": True},
-            {"name": "🎯 Take Profit 2 (TP2)", "value": f"**{tp2_f:.2f}** (+{tp2_pips:.0f}p | HTF Swing Runner)", "inline": True},
+            {"name": "🎯 Target Take Profit (TP)", "value": f"**{tp_f:.2f}** (+{tp_pips:.0f}p | Target Institusional)", "inline": True},
+            {"name": "🔒 Securing Bank (TP1)", "value": f"**{tp1_f:.2f}** (+{tp1_pips:.0f}p | Kunci 50% & BE)", "inline": True},
             {"name": "💼 Lot Rekomendasi", "value": f"**{signal.get('lot_size', 0.01)} Lot** (Risiko 1%)", "inline": True},
         ],
         "footer": {
@@ -103,7 +103,7 @@ async def send_discord_alert(signal: dict):
         
     embed["fields"].append({
         "name": "📋 Intraday Trade Execution Plan", 
-        "value": f"1. Masuk order presisi di zona **{entry_zone}** (harga konfirmasi: **{entry_f:.2f}**).\n2. **TP1 di {tp1_f:.2f} (+{tp1_pips:.0f}p)**: Kunci 50% lot profit & amankan modal.\n3. **TP2 di {tp2_f:.2f} (+{tp2_pips:.0f}p)**: Runner penuh menuju target likuiditas HTF (150-220p).\n4. **Ruang Napas & BE**: Begitu floating **+65 pips**, SL digeser ke **Break-Even**.\n5. Disiplin SL di **{sl_f:.2f}** (-{sl_pips:.0f} pips).", 
+        "value": f"1. Masuk order presisi di zona **{entry_zone}** (harga konfirmasi: **{entry_f:.2f}**).\n2. **Target Utama TP di {tp_f:.2f} (+{tp_pips:.0f}p)**: Target likuiditas institusional (150-220p).\n3. **Securing Bank di {tp1_f:.2f} (+{tp1_pips:.0f}p)**: Opsi kunci 50% lot & geser SL ke Break-Even.\n4. **Ruang Napas & BE**: Begitu floating **+65 pips**, SL digeser ke **Break-Even**.\n5. Disiplin SL di **{sl_f:.2f}** (-{sl_pips:.0f} pips).", 
         "inline": False
     })
 

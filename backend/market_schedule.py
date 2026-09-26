@@ -24,18 +24,32 @@ def get_utc_datetime(dt: Optional[datetime] = None) -> datetime:
         
     return dt
 
-def is_forex_market_open(dt: Optional[datetime] = None, symbol: str = "XAU/USD") -> Tuple[bool, str]:
+def is_forex_market_open(dt: Optional[datetime] = None, symbol: str = "XAU/USD", check_real_time: bool = False) -> Tuple[bool, str]:
     """
     Check whether Forex/Metals (XAU/USD) market is officially open.
     
     Forex & Metals Market Hours (UTC):
     - Opens: Sunday 21:00 UTC (or 22:00 UTC depending on DST)
     - Closes: Friday 21:00 UTC (or 22:00 UTC)
-    - Closed: Friday after 21:00 UTC, All Saturday, Sunday before 21:00 UTC.
-    
-    Friday Pre-Close Cutoff:
-    - To prevent high-risk weekend holds, new trading signals are paused on Friday after 20:00 UTC.
+    - Closed: Friday after 20:00 UTC (Pre-close safety pause), All Saturday, Sunday before 21:00 UTC.
     """
+    # 1. Real-World Live Time Check (if check_real_time=True or dt is None)
+    if check_real_time or dt is None:
+        real_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+        real_wday = real_utc.weekday()
+        real_hr = real_utc.hour
+        
+        # Real-world Saturday
+        if real_wday == 5:
+            return False, f"Market Closed (Real-world Weekend - Saturday {real_utc.strftime('%H:%M')} UTC)"
+        # Real-world Sunday before 21:00 UTC
+        if real_wday == 6 and real_hr < 21:
+            return False, f"Market Closed (Real-world Weekend - Sunday pre-market {real_utc.strftime('%H:%M')} UTC)"
+        # Real-world Friday after 20:00 UTC
+        if real_wday == 4 and real_hr >= 20:
+            return False, f"Trading Paused (Real-world Friday weekend cutoff active after 20:00 UTC)"
+
+    # 2. Historical / Tick Datetime Check
     utc_dt = get_utc_datetime(dt)
     weekday = utc_dt.weekday() # Monday=0, Tuesday=1, ..., Friday=4, Saturday=5, Sunday=6
     hour = utc_dt.hour

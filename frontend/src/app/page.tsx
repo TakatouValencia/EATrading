@@ -71,6 +71,7 @@ export default function Home() {
       try {
         const payload = JSON.parse(event.data);
         if (payload.type === "TRADE_CLOSED") {
+          if (payload.status === "CANCELLED" || payload.status === "MISSED") return;
           const toastId = Date.now();
           setToasts(prev => [...prev, {
             id: toastId,
@@ -83,6 +84,7 @@ export default function Home() {
             setToasts(prev => prev.filter(t => t.id !== toastId));
           }, 5000);
         } else if (payload.signal) {
+          if (payload.signal.status === "CANCELLED" || payload.signal.status === "MISSED") return;
           setSignals(prev => {
             const exists = prev.find(s => s.symbol === payload.signal.symbol && s.timestamp === payload.signal.timestamp);
             if (exists) return prev;
@@ -100,11 +102,12 @@ export default function Home() {
   }, []);
 
   const filteredSignals = signals.filter(sig => {
+    if (sig.status === "CANCELLED" || sig.status === "MISSED") return false;
     if (filter === "All") return true;
     if (filter === "Open") return sig.status === "PENDING" || sig.status === "ACTIVE";
     if (filter === "Hit TP") return sig.status === "WIN";
     if (filter === "Hit SL") return sig.status === "LOSS";
-    if (filter === "Closed") return sig.status === "WIN" || sig.status === "LOSS" || sig.status === "CANCELLED";
+    if (filter === "Closed") return sig.status === "WIN" || sig.status === "LOSS";
     return true;
   });
 

@@ -144,7 +144,10 @@ class TestSignalFlow(unittest.IsolatedAsyncioTestCase):
         print(f"\n[TEST PASS] NY KZ Grade A+ SELL: {res['symbol']} {res['type']} @ {res['entry']} | SL: {res['sl']} | TP1: {res['tp1']} | TP2: {res['tp2']}")
 
     async def test_daily_trade_limit(self):
-        self.tm.daily_completed_trades = 2
+        import settings_manager
+        cfg = settings_manager.load_settings()
+        max_daily = int(cfg.get("max_daily_trades", 3))
+        self.tm.daily_completed_trades = max_daily
         allowed, reason = self.tm.check_trading_allowed()
         self.assertFalse(allowed)
         self.assertIn("Daily Trades Quota Reached", reason)
