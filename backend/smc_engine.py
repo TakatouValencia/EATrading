@@ -106,63 +106,86 @@ class SMCEngine:
 
     def detect_fvg(self) -> List[Dict]:
         """
-        Detect Fair Value Gaps (FVG).
+        Detect Fair Value Gaps (FVG) and track their freshness.
         """
         fvgs = []
         
         for i in range(2, len(self.data)):
             candle1 = self.data[i-2]
-            candle2 = self.data[i-1] # The large body candle
+            candle2 = self.data[i-1] # The large displacement candle
             candle3 = self.data[i]
             
             # Bullish FVG: candle1.high < candle3.low
             if candle1['high'] < candle3['low']:
+                top = candle3['low']
+                bottom = candle1['high']
                 fvgs.append({
                     "type": "FVG_BULLISH",
-                    "top": candle3['low'],
-                    "bottom": candle1['high'],
-                    "timestamp": candle2['timestamp'],
-                    "index": i-1,
-                    "mitigated": False
+                    "top": top,
+                    "bottom": bottom,
+                    "ce": round((top + bottom) / 2.0, 5), # Consequent Encroachment (50% midpoint)
+                    "timestamp": candle3['timestamp'],
+                    "index": i,
+                    "mitigated": False,
+                    "touch_count": 0,
+                    "is_fresh": True
                 })
                 
             # Bearish FVG: candle1.low > candle3.high
             elif candle1['low'] > candle3['high']:
+                top = candle1['low']
+                bottom = candle3['high']
                 fvgs.append({
                     "type": "FVG_BEARISH",
-                    "top": candle1['low'],
-                    "bottom": candle3['high'],
-                    "timestamp": candle2['timestamp'],
-                    "index": i-1,
-                    "mitigated": False
+                    "top": top,
+                    "bottom": bottom,
+                    "ce": round((top + bottom) / 2.0, 5), # Consequent Encroachment (50% midpoint)
+                    "timestamp": candle3['timestamp'],
+                    "index": i,
+                    "mitigated": False,
+                    "touch_count": 0,
+                    "is_fresh": True
                 })
                 
-        # Mitigation/invalidation check: Invalidate if price closes beyond boundary or taps & reacts away
+        # Mitigation/invalidation check: Only check candles AFTER the FVG completed (index + 1)
         for fvg in fvgs:
             idx = fvg['index']
             tapped = False
             for j in range(idx + 1, len(self.data)):
                 candle = self.data[j]
                 if fvg['type'] == 'FVG_BULLISH':
+                    # Invalidation: Close below bottom of FVG
                     if candle['close'] < fvg['bottom']:
                         fvg['mitigated'] = True
+                        fvg['is_fresh'] = False
                         break
+                    # Tapped inside FVG
                     if candle['low'] <= fvg['top'] and candle['high'] >= fvg['bottom']:
                         tapped = True
-                    elif tapped and candle['close'] > fvg['top']:
-                        # Price entered FVG and subsequently reacted away strongly (mitigated/used)
-                        fvg['mitigated'] = True
-                        break
+                        fvg['touch_count'] += 1
+                        # If price closed below 50% CE or price subsequently reacted away and closed above top
+                        if candle['close'] < fvg['ce'] or (tapped and candle['close'] > fvg['top'] and j < len(self.data) - 1):
+                            fvg['mitigated'] = True
+                            fvg['is_fresh'] = False
+                            break
+                        else:
+                            fvg['is_fresh'] = (fvg['touch_count'] <= 1)
                 elif fvg['type'] == 'FVG_BEARISH':
+                    # Invalidation: Close above top of FVG
                     if candle['close'] > fvg['top']:
                         fvg['mitigated'] = True
+                        fvg['is_fresh'] = False
                         break
+                    # Tapped inside FVG
                     if candle['high'] >= fvg['bottom'] and candle['low'] <= fvg['top']:
                         tapped = True
-                    elif tapped and candle['close'] < fvg['bottom']:
-                        # Price entered FVG and subsequently reacted away strongly (mitigated/used)
-                        fvg['mitigated'] = True
-                        break
+                        fvg['touch_count'] += 1
+                        if candle['close'] > fvg['ce'] or (tapped and candle['close'] < fvg['bottom'] and j < len(self.data) - 1):
+                            fvg['mitigated'] = True
+                            fvg['is_fresh'] = False
+                            break
+                        else:
+                            fvg['is_fresh'] = (fvg['touch_count'] <= 1)
                     
         # Return valid (unmitigated) FVGs
         return [f for f in fvgs if not f['mitigated']]
@@ -222,7 +245,10 @@ class SMCEngine:
                             "bottom": self.data[ob_candle]['low'],
                             "timestamp": self.data[ob_candle]['timestamp'],
                             "index": ob_candle,
-                            "mitigated": False
+                            "break_idx": break_idx,
+                            "mitigated": False,
+                            "touch_count": 0,
+                            "is_fresh": True
                         })
                     
             elif "BEARISH" in event['type']:
@@ -265,34 +291,48 @@ class SMCEngine:
                             "bottom": self.data[ob_candle]['open'],
                             "timestamp": self.data[ob_candle]['timestamp'],
                             "index": ob_candle,
-                            "mitigated": False
+                            "break_idx": break_idx,
+                            "mitigated": False,
+                            "touch_count": 0,
+                            "is_fresh": True
                         })
-        # Mitigation/invalidation check for Order Blocks: Invalidate if price closes beyond boundary or taps & reacts away
+        # Mitigation/invalidation check for Order Blocks:
+        # Check only begins AFTER the break of structure (break_idx), because the OB is created to fuel that break.
         for ob in obs:
-            idx = ob['index']
+            start_idx = ob.get('break_idx', ob['index'])
             tapped = False
-            for j in range(idx + 1, len(self.data)):
+            for j in range(start_idx + 1, len(self.data)):
                 candle = self.data[j]
                 if ob['type'] == 'OB_BULLISH':
                     if candle['close'] < ob['bottom']:
                         ob['mitigated'] = True
+                        ob['is_fresh'] = False
                         break
                     if candle['low'] <= ob['top'] and candle['high'] >= ob['bottom']:
                         tapped = True
-                    elif tapped and candle['close'] > ob['top']:
-                        # Price entered OB and subsequently reacted away strongly (mitigated/used)
-                        ob['mitigated'] = True
-                        break
+                        ob['touch_count'] += 1
+                        if tapped and candle['close'] > ob['top'] and j < len(self.data) - 1:
+                            # Price entered OB and subsequently reacted away strongly (mitigated/used)
+                            ob['mitigated'] = True
+                            ob['is_fresh'] = False
+                            break
+                        else:
+                            ob['is_fresh'] = (ob['touch_count'] <= 1)
                 elif ob['type'] == 'OB_BEARISH':
                     if candle['close'] > ob['top']:
                         ob['mitigated'] = True
+                        ob['is_fresh'] = False
                         break
                     if candle['high'] >= ob['bottom'] and candle['low'] <= ob['top']:
                         tapped = True
-                    elif tapped and candle['close'] < ob['bottom']:
-                        # Price entered OB and subsequently reacted away strongly (mitigated/used)
-                        ob['mitigated'] = True
-                        break
+                        ob['touch_count'] += 1
+                        if tapped and candle['close'] < ob['bottom'] and j < len(self.data) - 1:
+                            # Price entered OB and subsequently reacted away strongly (mitigated/used)
+                            ob['mitigated'] = True
+                            ob['is_fresh'] = False
+                            break
+                        else:
+                            ob['is_fresh'] = (ob['touch_count'] <= 1)
                     
         # Return valid (unmitigated) Order Blocks
         return [ob for ob in obs if not ob['mitigated']]
@@ -677,16 +717,31 @@ class SMCEngine:
                     "mitigated": False
                 })
                 
-        # Relaxed mitigation/invalidation check
+        # Mitigation/invalidation check with freshness tracking
         for zone in snd_zones:
             idx = zone['index']
+            zone['touch_count'] = 0
+            zone['is_fresh'] = True
             for j in range(idx + 1, len(self.data)):
-                if zone['type'] == 'DEMAND' and self.data[j]['close'] < zone['bottom']:
-                    zone['mitigated'] = True
-                    break
-                elif zone['type'] == 'SUPPLY' and self.data[j]['close'] > zone['top']:
-                    zone['mitigated'] = True
-                    break
+                candle = self.data[j]
+                if zone['type'] == 'DEMAND':
+                    if candle['close'] < zone['bottom']:
+                        zone['mitigated'] = True
+                        zone['is_fresh'] = False
+                        break
+                    if candle['low'] <= zone['top'] and candle['high'] >= zone['bottom']:
+                        zone['touch_count'] += 1
+                        if zone['touch_count'] > 1 or (candle['close'] > zone['top'] and j < len(self.data) - 1):
+                            zone['is_fresh'] = False
+                elif zone['type'] == 'SUPPLY':
+                    if candle['close'] > zone['top']:
+                        zone['mitigated'] = True
+                        zone['is_fresh'] = False
+                        break
+                    if candle['high'] >= zone['bottom'] and candle['low'] <= zone['top']:
+                        zone['touch_count'] += 1
+                        if zone['touch_count'] > 1 or (candle['close'] < zone['bottom'] and j < len(self.data) - 1):
+                            zone['is_fresh'] = False
                     
         # Return valid (not completely invalidated) zones
         return [z for z in snd_zones if not z['mitigated']]

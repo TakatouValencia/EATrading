@@ -265,28 +265,49 @@ class SignalGenerator:
                     return None
 
             # -------------------------------------------------------------
-            # RULE 4: Entry Zone in Unfilled FVG or Unmitigated OB (Tapped by Current Candle)
+            # RULE 4: Entry Zone in Fresh FVG or Unmitigated OB (Strict Discount for BUY, Premium for SELL)
             # -------------------------------------------------------------
             fvg_target_type = f"FVG_{trend_tag}"
             ob_target_type = f"OB_{trend_tag}"
 
+            # Strict Valuation Reference: Never Enter in the Middle or Counter-Valuation
+            eq_level = pd_zones.get('eq', current_price) if pd_zones else current_price
+
             candidate_fvgs = [f for f in valid_fvgs if f.get('type') == fvg_target_type and not f.get('mitigated', False)]
-            candidate_obs = [o for o in valid_obs if o.get('type') == ob_target_type and not o.get('mitigated', False)]
+            
+            # Combine LTF/MTF OBs with HTF H1 OBs
+            all_obs = valid_obs + [o for o in (h1_obs or []) if o.get('type') == ob_target_type and not o.get('mitigated', False)]
+            seen_ob_sig = set()
+            candidate_obs = []
+            for o in all_obs:
+                sig = f"{o.get('type')}_{o.get('bottom')}_{o.get('top')}"
+                if sig not in seen_ob_sig:
+                    seen_ob_sig.add(sig)
+                    candidate_obs.append(o)
 
             matched_poi = None
             poi_type = None
             poi_top = 0.0
             poi_bottom = 0.0
+            is_fresh_zone = True
 
             if is_bullish:
-                # Bullish: Current candle tapped into or is inside the POI
+                # STRICT DISCOUNT ENFORCEMENT: Never Buy in Premium or Upper Equilibrium
+                if pd_zones and current_price > eq_level + (0.2 if is_xau else 0.0002):
+                    return None
+
+                # Bullish: Current candle tapped into or is inside the POI in Discount (< eq_level)
                 valid_pois = []
                 for f in candidate_fvgs:
-                    if c_low <= f['top'] and current_price >= f['bottom'] - 0.5:
-                        valid_pois.append(("FVG", f, f['top'], f['bottom']))
+                    if not pd_zones or f['bottom'] <= eq_level:
+                        if c_low <= f['top'] and current_price >= f['bottom'] - 0.5:
+                            is_fresh = f.get('is_fresh', True) or (f.get('touch_count', 0) <= 1)
+                            valid_pois.append(("FVG", f, f['top'], f['bottom'], is_fresh, f.get('touch_count', 0)))
                 for o in candidate_obs:
-                    if c_low <= o['top'] and current_price >= o['bottom'] - 0.5:
-                        valid_pois.append(("OB", o, o['top'], o['bottom']))
+                    if not pd_zones or o['bottom'] <= eq_level:
+                        if c_low <= o['top'] and current_price >= o['bottom'] - 0.5:
+                            is_fresh = o.get('is_fresh', True) or (o.get('touch_count', 0) <= 1)
+                            valid_pois.append(("OB", o, o['top'], o['bottom'], is_fresh, o.get('touch_count', 0)))
 
                 if not valid_pois:
                     return None
@@ -295,24 +316,29 @@ class SignalGenerator:
                 if current_price < c_open and (current_price - c_low) < (c_high - current_price):
                     return None
 
-                fvg_pois = [p for p in valid_pois if p[0] == "FVG"]
-                if fvg_pois:
-                    valid_pois = fvg_pois
-                valid_pois.sort(key=lambda x: abs(current_price - x[2]))
-                poi_type, poi_obj, poi_top, poi_bottom = valid_pois[0]
+                # Prioritize: 1) Fresh Virgin POI (0 previous touches), 2) FVG over OB, 3) Closeness to entry
+                valid_pois.sort(key=lambda x: (not x[4], 0 if x[0] == "FVG" else 1, abs(current_price - x[2])))
+                poi_type, poi_obj, poi_top, poi_bottom, is_fresh_zone, touch_cnt = valid_pois[0]
                 exec_type = "CONFIRMED"
-                # Refined Entry: Optimal entry at POI boundary (no chasing high/low wicks)
                 entry_target = round(min(current_price, poi_top + 0.4), 2 if is_xau else 5)
 
             else:
-                # Bearish: Current candle tapped into or is inside the POI
+                # STRICT PREMIUM ENFORCEMENT: Never Sell in Discount or Lower Equilibrium
+                if pd_zones and current_price < eq_level - (0.2 if is_xau else 0.0002):
+                    return None
+
+                # Bearish: Current candle tapped into or is inside the POI in Premium (> eq_level)
                 valid_pois = []
                 for f in candidate_fvgs:
-                    if c_high >= f['bottom'] and current_price <= f['top'] + 0.5:
-                        valid_pois.append(("FVG", f, f['top'], f['bottom']))
+                    if not pd_zones or f['top'] >= eq_level:
+                        if c_high >= f['bottom'] and current_price <= f['top'] + 0.5:
+                            is_fresh = f.get('is_fresh', True) or (f.get('touch_count', 0) <= 1)
+                            valid_pois.append(("FVG", f, f['top'], f['bottom'], is_fresh, f.get('touch_count', 0)))
                 for o in candidate_obs:
-                    if c_high >= o['bottom'] and current_price <= o['top'] + 0.5:
-                        valid_pois.append(("OB", o, o['top'], o['bottom']))
+                    if not pd_zones or o['top'] >= eq_level:
+                        if c_high >= o['bottom'] and current_price <= o['top'] + 0.5:
+                            is_fresh = o.get('is_fresh', True) or (o.get('touch_count', 0) <= 1)
+                            valid_pois.append(("OB", o, o['top'], o['bottom'], is_fresh, o.get('touch_count', 0)))
 
                 if not valid_pois:
                     return None
@@ -320,18 +346,52 @@ class SignalGenerator:
                 if current_price > c_open and (c_high - current_price) < (current_price - c_low):
                     return None
 
-                fvg_pois = [p for p in valid_pois if p[0] == "FVG"]
-                if fvg_pois:
-                    valid_pois = fvg_pois
-                valid_pois.sort(key=lambda x: abs(current_price - x[3]))
-                poi_type, poi_obj, poi_top, poi_bottom = valid_pois[0]
+                # Prioritize: 1) Fresh Virgin POI, 2) FVG over OB, 3) Closeness to entry
+                valid_pois.sort(key=lambda x: (not x[4], 0 if x[0] == "FVG" else 1, abs(current_price - x[3])))
+                poi_type, poi_obj, poi_top, poi_bottom, is_fresh_zone, touch_cnt = valid_pois[0]
                 exec_type = "CONFIRMED"
-                # Refined Entry: Optimal entry at POI boundary
                 entry_target = round(max(current_price, poi_bottom - 0.4), 2 if is_xau else 5)
 
             poi_obj_type = poi_obj.get('type', f"{poi_type}_{'BULLISH' if is_bullish else 'BEARISH'}")
             poi_sig = f"{symbol}_{poi_obj_type}_{poi_bottom}_{poi_top}"
-            reasons.append(f"Entry Zone: Unfilled {poi_type} ({poi_bottom:.2f} - {poi_top:.2f}) Tapped & Rejected (+2)")
+            
+            if is_fresh_zone:
+                confluence_score += 4
+                reasons.append(f"Fresh Zone: Virgin Unmitigated {poi_type} ({poi_bottom:.2f} - {poi_top:.2f}) First Tap Retest (+4)")
+            else:
+                confluence_score += 2
+                reasons.append(f"Entry Zone: Unfilled {poi_type} ({poi_bottom:.2f} - {poi_top:.2f}) Tapped & Rejected (+2)")
+
+            # Additional Confluence 1: Fibo OTE Golden Zone (0.618 - 0.786)
+            if fibo_ote:
+                ote_key = "bullish_ote" if is_bullish else "bearish_ote"
+                if ote_key in fibo_ote and fibo_ote[ote_key]:
+                    o_top = fibo_ote[ote_key]['top']
+                    o_bot = fibo_ote[ote_key]['bottom']
+                    o_min = min(o_top, o_bot)
+                    o_max = max(o_top, o_bot)
+                    if o_min - 0.5 <= current_price <= o_max + 0.5:
+                        confluence_score += 3
+                        reasons.append(f"Golden Pocket: Fibo OTE 61.8% - 78.6% Retracement ({o_min:.2f} - {o_max:.2f}) (+3)")
+
+            # Additional Confluence 2: HTF H1 Order Block Confluence
+            if h1_obs:
+                for h_ob in h1_obs:
+                    if (is_bullish and h_ob.get('type') == 'OB_BULLISH') or (not is_bullish and h_ob.get('type') == 'OB_BEARISH'):
+                        if max(poi_bottom, h_ob['bottom']) <= min(poi_top, h_ob['top']):
+                            confluence_score += 3
+                            reasons.append(f"HTF Confluence: M5/M15 Zone Selaras H1 Institutional Order Block (+3)")
+                            break
+
+            # Additional Confluence 3: Supply & Demand Confluence
+            if snd_zones:
+                snd_target = "DEMAND" if is_bullish else "SUPPLY"
+                for z in snd_zones:
+                    if z.get('type') == snd_target and not z.get('mitigated', False):
+                        if max(poi_bottom, z['bottom']) <= min(poi_top, z['top']):
+                            confluence_score += 2
+                            reasons.append(f"Institutional S&D: Overlap dengan Fresh {snd_target} Zone (+2)")
+                            break
 
             # -------------------------------------------------------------
             # RULE 5: Stop Loss (POI Extreme + Buffer, Floor 50p, Cap 70p)

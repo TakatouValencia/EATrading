@@ -273,6 +273,7 @@ async def run_smc_analysis(tick: dict):
             engine_h1 = SMCEngine(df_h1) if df_h1 else None
             h1_events = engine_h1.detect_bos_choch() if engine_h1 else []
             h1_obs = engine_h1.detect_order_blocks(h1_events) if engine_h1 else []
+            h1_fvgs = engine_h1.detect_fvg() if engine_h1 else []
             h1_pd = engine_h1.detect_premium_discount() if engine_h1 else None
             h1_trend = ("BULLISH" if "BULLISH" in h1_events[-1]['type'] else "BEARISH") if h1_events else None
 
@@ -295,9 +296,9 @@ async def run_smc_analysis(tick: dict):
                 last_m15_event = m15_events[-1]
                 m15_trend = "BULLISH" if "BULLISH" in last_m15_event['type'] else "BEARISH"
 
-            # Combine M15 and M5 institutional POIs (refined, tight zones)
-            combined_obs = m15_obs + m5_obs
-            combined_fvgs = m15_fvgs + m5_fvgs
+            # Combine H1, M15 and M5 institutional POIs (refined, tight zones)
+            combined_obs = h1_obs + m15_obs + m5_obs
+            combined_fvgs = h1_fvgs + m15_fvgs + m5_fvgs
             combined_breakers = m15_breakers + m5_breakers
             combined_qms = engine_m15.detect_quasimodo() + (engine_m5.detect_quasimodo() if engine_m5 else [])
             combined_rbs = engine_m15.detect_rbs_sbr() + (engine_m5.detect_rbs_sbr() if engine_m5 else [])

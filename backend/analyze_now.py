@@ -46,6 +46,7 @@ async def main():
     engine_h1 = SMCEngine(df_h1) if df_h1 else None
     h1_events = engine_h1.detect_bos_choch() if engine_h1 else []
     h1_obs = engine_h1.detect_order_blocks(h1_events) if engine_h1 else []
+    h1_fvgs = engine_h1.detect_fvg() if engine_h1 else []
     h1_pd = engine_h1.detect_premium_discount() if engine_h1 else None
     h1_trend = ("BULLISH" if "BULLISH" in h1_events[-1]['type'] else "BEARISH") if h1_events else None
 
@@ -77,9 +78,9 @@ async def main():
         m5_trend = "BULLISH" if "BULLISH" in last_m5_event['type'] else "BEARISH"
     print(f"M5 Trend: {m5_trend}")
     
-    # Combine M15 and M5 POIs
-    combined_obs = m15_obs + m5_obs
-    combined_fvgs = m15_fvgs + m5_fvgs
+    # Combine H1, M15 and M5 institutional POIs
+    combined_obs = h1_obs + m15_obs + m5_obs
+    combined_fvgs = h1_fvgs + m15_fvgs + m5_fvgs
     combined_breakers = m15_breakers + m5_breakers
     combined_qms = engine_m15.detect_quasimodo() + engine_m5.detect_quasimodo()
     combined_rbs = engine_m15.detect_rbs_sbr() + engine_m5.detect_rbs_sbr()
