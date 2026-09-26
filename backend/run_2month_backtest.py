@@ -209,10 +209,11 @@ async def run_2month_backtest():
             e_1h = SMCEngine(curr_1h_window)
             ev_1h = e_1h.detect_bos_choch()
             obs_1h = e_1h.detect_order_blocks(ev_1h)
+            fvgs_1h = e_1h.detect_fvg()
             pd_1h = e_1h.detect_premium_discount()
             trend_1h = ("BULLISH" if "BULLISH" in ev_1h[-1]['type'] else "BEARISH") if ev_1h else None
         else:
-            e_1h, obs_1h, pd_1h, trend_1h = None, [], None, None
+            e_1h, obs_1h, fvgs_1h, pd_1h, trend_1h = None, [], [], None, None
 
         # Fast bisect for M30 window
         idx_30m = bisect_right(timestamps_30m, curr_time)
@@ -254,8 +255,8 @@ async def run_2month_backtest():
         atr = e_5m.calculate_atr(14)
         trend_5m = "BULLISH" if ev_5m and "BULLISH" in ev_5m[-1]['type'] else "BEARISH"
 
-        combined_obs = obs_15m + obs_5m
-        combined_fvgs = fvgs_15m + fvgs_5m
+        combined_obs = obs_1h + obs_15m + obs_5m
+        combined_fvgs = fvgs_1h + fvgs_15m + fvgs_5m
         combined_breakers = breakers_15m + breakers_5m
         combined_qms = qms_15m + qms_5m
         combined_rbs = rbs_15m + rbs_5m
@@ -352,7 +353,7 @@ Filter HTF             : H4 & D1 Trend Alignment (Strict Institutional Flow)
 Setup Engine           : Dual SMC (Major Liquidity Sweep Reversal + Trend Continuation)
 Filter Sesi            : Asian (07:00-12:00 WIB), London (12:00-18:00 WIB), NY (18:00-01:00 WIB)
 Manajemen Risiko       : Dynamic SL (POI Extreme + Buffer 18p, Floor 50p, Cap 70p), Breathing Room BE di +65p
-Eksekusi TP            : TP1 (+75p Kunci Profit 50% & SL->BE+20p) + TP2 (+150-220p HTF Target)
+Eksekusi TP            : TP1 (+120p Kunci Profit 50%) + TP2 (+180-220p HTF Institutional Target)
 ----------------------------------------------------------------------
 RINGKASAN HASIL EKSEKUSI:
 ----------------------------------------------------------------------
