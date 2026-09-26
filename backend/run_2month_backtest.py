@@ -1,6 +1,8 @@
 import asyncio
 import os
 import sys
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(line_buffering=True)
 from datetime import datetime, timedelta
 import yfinance as yf
 from smc_engine import SMCEngine
@@ -257,6 +259,7 @@ async def run_2month_backtest():
 
         combined_obs = obs_1h + obs_15m + obs_5m
         combined_fvgs = fvgs_1h + fvgs_15m + fvgs_5m
+        combined_ifvgs = (e_1h.detect_inversion_fvg() if e_1h else []) + e_15m.detect_inversion_fvg() + e_5m.detect_inversion_fvg()
         combined_breakers = breakers_15m + breakers_5m
         combined_qms = qms_15m + qms_5m
         combined_rbs = rbs_15m + rbs_5m
@@ -272,6 +275,7 @@ async def run_2month_backtest():
             events=ev_5m,
             obs=combined_obs,
             fvgs=combined_fvgs,
+            ifvgs=combined_ifvgs,
             sweeps=sweeps,
             m15_trend=trend_15m,
             m5_trend=trend_5m,

@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 from datetime import datetime, timedelta, timezone
 from risk_calculator import calculate_pips, calculate_lot_size
 import settings_manager
-from market_schedule import is_forex_market_open, is_killzone_active, get_utc_datetime
+from market_schedule import is_forex_market_open, is_killzone_active, get_utc_datetime, is_high_impact_news_window
 
 class SignalGenerator:
     def __init__(self, cooldown_minutes: int = 60):
@@ -63,6 +63,8 @@ class SignalGenerator:
                                   m30_trend: str = None,
                                   crt_patterns: List[Dict] = None,
                                   liquidity_pools: Dict = None,
+                                  ifvgs: List[Dict] = None,
+                                  smt_divergence: Dict = None,
                                   **kwargs) -> Optional[Dict]:
         """
         Evaluate institutional Grade A+ SMC setup specifically tailored for XAUUSD.
@@ -115,9 +117,14 @@ class SignalGenerator:
         if not is_open:
             return None
 
-        # 5. Strict Session Filter: London KZ (14:00 - 17:00 WIB) & NY KZ (19:30 - 22:30 WIB)
+        # 5. Strict Session Filter: London KZ & NY KZ (Dead Zone 17:30-19:30 WIB paused)
         is_killzone, kz_reason = is_killzone_active(now_time)
         if not is_killzone:
+            return None
+
+        # 5B. High-Impact Macroeconomic News Shield (Protects against slippage / spread expansion)
+        is_news, news_reason = is_high_impact_news_window(now_time)
+        if is_news:
             return None
 
         # 6. Check Liquidity Pools
@@ -299,15 +306,28 @@ class SignalGenerator:
                 # Bullish: Current candle tapped into or is inside the POI in Discount (< eq_level)
                 valid_pois = []
                 for f in candidate_fvgs:
+                    if engine_ltf and hasattr(engine_ltf, 'classify_poi_quality'):
+                        if engine_ltf.classify_poi_quality(f, pd_zones) == "INDUCEMENT":
+                            continue # Skip retail trap floating in equilibrium
                     if not pd_zones or f['bottom'] <= eq_level:
                         if c_low <= f['top'] and current_price >= f['bottom'] - 0.5:
                             is_fresh = f.get('is_fresh', True) or (f.get('touch_count', 0) <= 1)
                             valid_pois.append(("FVG", f, f['top'], f['bottom'], is_fresh, f.get('touch_count', 0)))
                 for o in candidate_obs:
+                    if engine_ltf and hasattr(engine_ltf, 'classify_poi_quality'):
+                        if engine_ltf.classify_poi_quality(o, pd_zones) == "INDUCEMENT":
+                            continue
                     if not pd_zones or o['bottom'] <= eq_level:
                         if c_low <= o['top'] and current_price >= o['bottom'] - 0.5:
                             is_fresh = o.get('is_fresh', True) or (o.get('touch_count', 0) <= 1)
                             valid_pois.append(("OB", o, o['top'], o['bottom'], is_fresh, o.get('touch_count', 0)))
+                
+                # Check Inversion FVGs (IFVG)
+                candidate_ifvgs = [iv for iv in (ifvgs or []) if iv.get('type') == 'IFVG_BULLISH' and not iv.get('mitigated', False)]
+                for iv in candidate_ifvgs:
+                    if not pd_zones or iv['bottom'] <= eq_level:
+                        if c_low <= iv['top'] and current_price >= iv['bottom'] - 0.5:
+                            valid_pois.append(("IFVG", iv, iv['top'], iv['bottom'], True, 0))
 
                 if not valid_pois:
                     return None
@@ -317,7 +337,7 @@ class SignalGenerator:
                     return None
 
                 # Prioritize: 1) Fresh Virgin POI (0 previous touches), 2) FVG over OB, 3) Closeness to entry
-                valid_pois.sort(key=lambda x: (not x[4], 0 if x[0] == "FVG" else 1, abs(current_price - x[2])))
+                valid_pois.sort(key=lambda x: (not x[4], 0 if x[0] in ["FVG", "IFVG"] else 1, abs(current_price - x[2])))
                 poi_type, poi_obj, poi_top, poi_bottom, is_fresh_zone, touch_cnt = valid_pois[0]
                 exec_type = "CONFIRMED"
                 entry_target = round(min(current_price, poi_top + 0.4), 2 if is_xau else 5)
@@ -330,15 +350,28 @@ class SignalGenerator:
                 # Bearish: Current candle tapped into or is inside the POI in Premium (> eq_level)
                 valid_pois = []
                 for f in candidate_fvgs:
+                    if engine_ltf and hasattr(engine_ltf, 'classify_poi_quality'):
+                        if engine_ltf.classify_poi_quality(f, pd_zones) == "INDUCEMENT":
+                            continue # Skip retail trap floating in equilibrium
                     if not pd_zones or f['top'] >= eq_level:
                         if c_high >= f['bottom'] and current_price <= f['top'] + 0.5:
                             is_fresh = f.get('is_fresh', True) or (f.get('touch_count', 0) <= 1)
                             valid_pois.append(("FVG", f, f['top'], f['bottom'], is_fresh, f.get('touch_count', 0)))
                 for o in candidate_obs:
+                    if engine_ltf and hasattr(engine_ltf, 'classify_poi_quality'):
+                        if engine_ltf.classify_poi_quality(o, pd_zones) == "INDUCEMENT":
+                            continue
                     if not pd_zones or o['top'] >= eq_level:
                         if c_high >= o['bottom'] and current_price <= o['top'] + 0.5:
                             is_fresh = o.get('is_fresh', True) or (o.get('touch_count', 0) <= 1)
                             valid_pois.append(("OB", o, o['top'], o['bottom'], is_fresh, o.get('touch_count', 0)))
+                
+                # Check Inversion FVGs (IFVG)
+                candidate_ifvgs = [iv for iv in (ifvgs or []) if iv.get('type') == 'IFVG_BEARISH' and not iv.get('mitigated', False)]
+                for iv in candidate_ifvgs:
+                    if not pd_zones or iv['top'] >= eq_level:
+                        if c_high >= iv['bottom'] and current_price <= iv['top'] + 0.5:
+                            valid_pois.append(("IFVG", iv, iv['top'], iv['bottom'], True, 0))
 
                 if not valid_pois:
                     return None
@@ -347,7 +380,7 @@ class SignalGenerator:
                     return None
 
                 # Prioritize: 1) Fresh Virgin POI, 2) FVG over OB, 3) Closeness to entry
-                valid_pois.sort(key=lambda x: (not x[4], 0 if x[0] == "FVG" else 1, abs(current_price - x[3])))
+                valid_pois.sort(key=lambda x: (not x[4], 0 if x[0] in ["FVG", "IFVG"] else 1, abs(current_price - x[3])))
                 poi_type, poi_obj, poi_top, poi_bottom, is_fresh_zone, touch_cnt = valid_pois[0]
                 exec_type = "CONFIRMED"
                 entry_target = round(max(current_price, poi_bottom - 0.4), 2 if is_xau else 5)
@@ -361,6 +394,12 @@ class SignalGenerator:
             else:
                 confluence_score += 2
                 reasons.append(f"Entry Zone: Unfilled {poi_type} ({poi_bottom:.2f} - {poi_top:.2f}) Tapped & Rejected (+2)")
+
+            # Additional Confluence 0: Extreme POI vs Decisional POI
+            if engine_ltf and hasattr(engine_ltf, 'classify_poi_quality'):
+                if engine_ltf.classify_poi_quality(poi_obj, pd_zones) == "EXTREME":
+                    confluence_score += 3
+                    reasons.append(f"Extreme POI: Deep Institutional Origin Zone ({poi_bottom:.2f} - {poi_top:.2f}) (+3)")
 
             # Additional Confluence 1: Fibo OTE Golden Zone (0.618 - 0.786)
             if fibo_ote:
@@ -392,6 +431,13 @@ class SignalGenerator:
                             confluence_score += 2
                             reasons.append(f"Institutional S&D: Overlap dengan Fresh {snd_target} Zone (+2)")
                             break
+
+            # Additional Confluence 4: SMT Divergence (Smart Money Tool)
+            if smt_divergence:
+                smt_type = smt_divergence.get('type')
+                if (is_bullish and smt_type == 'SMT_BULLISH') or (not is_bullish and smt_type == 'SMT_BEARISH'):
+                    confluence_score += 4
+                    reasons.append(f"SMT Divergence: {smt_divergence.get('reason', 'Institutional Correlation Divergence')} (+4)")
 
             # -------------------------------------------------------------
             # RULE 5: Stop Loss (POI Extreme + Buffer, Floor 50p, Cap 70p)

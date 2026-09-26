@@ -299,6 +299,7 @@ async def run_smc_analysis(tick: dict):
             # Combine H1, M15 and M5 institutional POIs (refined, tight zones)
             combined_obs = h1_obs + m15_obs + m5_obs
             combined_fvgs = h1_fvgs + m15_fvgs + m5_fvgs
+            combined_ifvgs = (engine_h1.detect_inversion_fvg() if engine_h1 else []) + engine_m15.detect_inversion_fvg() + (engine_m5.detect_inversion_fvg() if engine_m5 else [])
             combined_breakers = m15_breakers + m5_breakers
             combined_qms = engine_m15.detect_quasimodo() + (engine_m5.detect_quasimodo() if engine_m5 else [])
             combined_rbs = engine_m15.detect_rbs_sbr() + (engine_m5.detect_rbs_sbr() if engine_m5 else [])
@@ -306,8 +307,9 @@ async def run_smc_analysis(tick: dict):
             adx_m15 = engine_m15.calculate_adx(14)
             adx_h1 = engine_h1.calculate_adx(14) if engine_h1 else 25.0
 
-            # DXY Trend for Intermarket Correlation (using cached/async data)
+            # DXY Trend & SMT Divergence for Intermarket Correlation (using cached/async data)
             dxy_trend = None
+            smt_divergence = None
             if "XAU" in symbol:
                 if "DXY" not in app.state.market_data:
                     try:
@@ -323,6 +325,7 @@ async def run_smc_analysis(tick: dict):
                     dxy_events = engine_dxy.detect_bos_choch()
                     if dxy_events:
                         dxy_trend = "BULLISH" if "BULLISH" in dxy_events[-1]['type'] else "BEARISH"
+                    smt_divergence = SMCEngine.detect_smt_divergence(df_m15, df_dxy, is_inverse=True)
             
             # Apply Risk Management / Circuit Breaker Check
             trade_manager.current_time_str = tick_time_obj.isoformat()
@@ -360,6 +363,8 @@ async def run_smc_analysis(tick: dict):
                             events=m15_events + (m5_events if m5_events else []),
                             obs=combined_obs,
                             fvgs=combined_fvgs,
+                            ifvgs=combined_ifvgs,
+                            smt_divergence=smt_divergence,
                             sweeps=sweeps,
                             m15_trend=m15_trend,
                             m5_trend=m5_trend,

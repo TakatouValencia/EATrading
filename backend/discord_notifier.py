@@ -103,7 +103,7 @@ async def send_discord_alert(signal: dict):
         
     embed["fields"].append({
         "name": "📋 Intraday Trade Execution Plan", 
-        "value": f"1. Masuk order presisi di zona **{entry_zone}** (harga konfirmasi: **{entry_f:.2f}**).\n2. **Target Utama TP di {tp_f:.2f} (+{tp_pips:.0f}p)**: Target likuiditas institusional (150-220p).\n3. **Securing Bank di {tp1_f:.2f} (+{tp1_pips:.0f}p)**: Opsi kunci 50% lot & geser SL ke Break-Even.\n4. **Ruang Napas & BE**: Begitu floating **+65 pips**, SL digeser ke **Break-Even**.\n5. Disiplin SL di **{sl_f:.2f}** (-{sl_pips:.0f} pips).", 
+        "value": f"1. Masuk order presisi di zona **{entry_zone}** (harga konfirmasi: **{entry_f:.2f}**).\n2. **Target Utama TP di {tp_f:.2f} (+{tp_pips:.0f}p)**: Target likuiditas institusional (150-220p).\n3. **Securing Bank di {tp1_f:.2f} (+{tp1_pips:.0f}p)**: Opsi kunci 50% lot & geser SL ke Break-Even.\n4. **Proteksi Modal & BE**: Begitu floating **+50 pips (1:1 RRR)**, SL digeser ke **Break-Even (+2p)**.\n5. Disiplin SL di **{sl_f:.2f}** (-{sl_pips:.0f} pips).", 
         "inline": False
     })
 

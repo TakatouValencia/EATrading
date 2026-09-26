@@ -1567,3 +1567,153 @@ class SMCEngine:
             return 100.0
         rs = avg_gain / avg_loss
         return round(100.0 - (100.0 / (1.0 + rs)), 2)
+
+    def detect_inversion_fvg(self) -> List[Dict]:
+        """
+        Detect Inversion Fair Value Gaps (IFVG).
+        When a Bullish FVG is breached to the downside (candle close < bottom),
+        it flips into a Bearish Resistance zone.
+        When a Bearish FVG is breached to the upside (candle close > top),
+        it flips into a Bullish Support zone.
+        """
+        ifvgs = []
+        for i in range(2, len(self.data)):
+            c1 = self.data[i-2]
+            c3 = self.data[i]
+            
+            # Bullish FVG breached -> Bearish IFVG
+            if c1['high'] < c3['low']:
+                top = c3['low']
+                bottom = c1['high']
+                breached = False
+                breach_idx = None
+                for j in range(i + 1, len(self.data)):
+                    if self.data[j]['close'] < bottom:
+                        breached = True
+                        breach_idx = j
+                        break
+                if breached:
+                    mitigated = False
+                    for k in range(breach_idx + 1, len(self.data)):
+                        if self.data[k]['close'] > top:
+                            mitigated = True
+                            break
+                    if not mitigated:
+                        ifvgs.append({
+                            "type": "IFVG_BEARISH",
+                            "top": top,
+                            "bottom": bottom,
+                            "timestamp": self.data[breach_idx]['timestamp'],
+                            "index": breach_idx,
+                            "mitigated": False,
+                            "is_fresh": True
+                        })
+
+            # Bearish FVG breached -> Bullish IFVG
+            elif c1['low'] > c3['high']:
+                top = c1['low']
+                bottom = c3['high']
+                breached = False
+                breach_idx = None
+                for j in range(i + 1, len(self.data)):
+                    if self.data[j]['close'] > top:
+                        breached = True
+                        breach_idx = j
+                        break
+                if breached:
+                    mitigated = False
+                    for k in range(breach_idx + 1, len(self.data)):
+                        if self.data[k]['close'] < bottom:
+                            mitigated = True
+                            break
+                    if not mitigated:
+                        ifvgs.append({
+                            "type": "IFVG_BULLISH",
+                            "top": top,
+                            "bottom": bottom,
+                            "timestamp": self.data[breach_idx]['timestamp'],
+                            "index": breach_idx,
+                            "mitigated": False,
+                            "is_fresh": True
+                        })
+        return ifvgs
+
+    def classify_poi_quality(self, poi: Dict, pd_zones: Optional[Dict] = None) -> str:
+        """
+        Classify POI as 'EXTREME', 'DECISIONAL', or 'INDUCEMENT'.
+        - EXTREME: Deep discount (<= 0.35 of dealing range for Buy, >= 0.65 for Sell). Highest probability.
+        - DECISIONAL: Decisively caused the break of structure (BOS) with strong displacement.
+        - INDUCEMENT: Floating around 45% - 55% equilibrium. Retail trap liquidity to be avoided.
+        """
+        if not pd_zones or not pd_zones.get('range_high') or not pd_zones.get('range_low'):
+            return "DECISIONAL"
+            
+        r_high = pd_zones['range_high']
+        r_low = pd_zones['range_low']
+        r_span = r_high - r_low
+        if r_span <= 0:
+            return "DECISIONAL"
+            
+        mid = (poi.get('top', 0) + poi.get('bottom', 0)) / 2.0
+        range_pos = (mid - r_low) / r_span
+        
+        is_bullish = "BULLISH" in poi.get('type', '') or poi.get('type') == 'DEMAND'
+        if is_bullish:
+            if range_pos <= 0.35:
+                return "EXTREME"
+            elif 0.44 <= range_pos <= 0.56:
+                return "INDUCEMENT"
+            else:
+                return "DECISIONAL"
+        else:
+            if range_pos >= 0.65:
+                return "EXTREME"
+            elif 0.44 <= range_pos <= 0.56:
+                return "INDUCEMENT"
+            else:
+                return "DECISIONAL"
+
+    @staticmethod
+    def detect_smt_divergence(primary_data: List[Dict], secondary_data: List[Dict], is_inverse: bool = True) -> Optional[Dict]:
+        """
+        Detect SMT Divergence (Smart Money Technique / Crack in Correlation).
+        For Inverse correlation (e.g. Gold vs DXY):
+        - Bullish SMT: DXY makes Higher High, but Gold refuses to make Lower Low (makes Higher Low).
+        - Bearish SMT: DXY makes Lower Low, but Gold refuses to make Higher High (makes Lower High).
+        """
+        if not primary_data or not secondary_data or len(primary_data) < 20 or len(secondary_data) < 20:
+            return None
+
+        p_recent = primary_data[-20:]
+        s_recent = secondary_data[-20:]
+
+        p_lows = [c['low'] for c in p_recent]
+        p_highs = [c['high'] for c in p_recent]
+        s_highs = [c['high'] for c in s_recent]
+        s_lows = [c['low'] for c in s_recent]
+
+        p_min1 = min(p_lows[:10])
+        p_min2 = min(p_lows[10:])
+        s_max1 = max(s_highs[:10])
+        s_max2 = max(s_highs[10:])
+
+        p_max1 = max(p_highs[:10])
+        p_max2 = max(p_highs[10:])
+        s_min1 = min(s_lows[:10])
+        s_min2 = min(s_lows[10:])
+
+        if is_inverse:
+            # Bullish SMT: DXY made HH (s_max2 > s_max1), but Gold made HL (p_min2 >= p_min1)
+            if s_max2 > s_max1 and p_min2 >= p_min1:
+                return {
+                    "type": "SMT_BULLISH",
+                    "reason": "Bullish SMT Divergence: DXY made Higher High, but Gold refused to break Lower Low"
+                }
+            # Bearish SMT: DXY made LL (s_min2 < s_min1), but Gold made LH (p_max2 <= p_max1)
+            if s_min2 < s_min1 and p_max2 <= p_max1:
+                return {
+                    "type": "SMT_BEARISH",
+                    "reason": "Bearish SMT Divergence: DXY made Lower Low, but Gold refused to break Higher High"
+                }
+
+        return None

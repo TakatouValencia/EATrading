@@ -99,18 +99,73 @@ def is_killzone_active(dt: Optional[datetime] = None) -> Tuple[bool, str]:
     wib_hour = (hour + 7) % 24
     wib_str = f"{wib_hour:02d}:{minute:02d} WIB ({hour:02d}:{minute:02d} UTC)"
 
-    # Session Times (WIB = UTC+7):
-    # - Asian Institutional Session: 07:00 - 12:00 WIB (00:00 - 05:00 UTC)
-    # - London Institutional Session: 12:00 - 18:00 WIB (05:00 - 11:00 UTC)
-    # - New York Institutional Session: 18:00 - 01:00 WIB (11:00 - 18:00 UTC)
-    # - Rollover & Spread Protection: 01:00 - 07:00 WIB (18:00 - 24:00 UTC) - PAUSED
-    if 0.0 <= current_time_dec < 5.0:
-        return True, f"Asian Institutional Session (07:00 - 12:00 WIB) [{wib_str}]"
-    elif 5.0 <= current_time_dec < 11.0:
-        return True, f"London Institutional Session (12:00 - 18:00 WIB) [{wib_str}]"
-    elif 11.0 <= current_time_dec <= 18.0:
-        return True, f"New York Institutional Session (18:00 - 01:00 WIB) [{wib_str}]"
+    # High-Probability Session Times (WIB = UTC+7):
+    # - Asian Institutional Session: 00:00 - 04:30 UTC (07:00 - 11:30 WIB)
+    # - London Peak Session: 06:00 - 10:30 UTC (13:00 - 17:30 WIB)
+    # - Pre-NY Handover Gap / Dead Zone: 10:30 - 12:30 UTC (17:30 - 19:30 WIB) -> PAUSED for low volume whipsaws
+    # - New York Peak Session: 12:30 - 18:00 UTC (19:30 - 01:00 WIB)
+    # - Rollover & Spread Protection: 18:00 - 24:00 UTC (01:00 - 07:00 WIB) -> PAUSED
+    if 0.0 <= current_time_dec < 4.5:
+        return True, f"Asian Institutional Session (07:00 - 11:30 WIB) [{wib_str}]"
+    elif 6.0 <= current_time_dec < 10.5:
+        return True, f"London Peak Session (13:00 - 17:30 WIB) [{wib_str}]"
+    elif 10.5 <= current_time_dec < 12.5:
+        return False, f"Pre-NY Handover Gap / Low Volume Dead Zone (17:30 - 19:30 WIB) [{wib_str}]"
+    elif 12.5 <= current_time_dec <= 18.0:
+        return True, f"New York Peak Session (19:30 - 01:00 WIB) [{wib_str}]"
 
     return False, f"Rollover / Pre-Asia Twilight [{wib_str}] - Setup paused for spread protection (Active 07:00-01:00 WIB)"
+
+def is_high_impact_news_window(dt: Optional[datetime] = None) -> Tuple[bool, str]:
+    """
+    Check if the current time falls inside high-impact macroeconomic event release windows.
+    Protects Gold trades from 40-70 pip slippage and spread widening during major US releases:
+    - NFP (Non-Farm Payrolls): First Friday of the month (8:30 AM ET)
+    - CPI (Consumer Price Index): Second Tuesday/Wednesday of the month (8:30 AM ET)
+    - Core PPI & Retail Sales: Mid-month Thursday (8:30 AM ET)
+    - FOMC Statement / Fed Funds Rate: 3rd Wednesday of the month (2:00 PM ET)
+    
+    Automatically accounts for US Daylight Saving Time (EDT vs EST).
+    """
+    utc_dt = get_utc_datetime(dt)
+    weekday = utc_dt.weekday()
+    if weekday >= 5: # Weekend
+        return False, "Weekend"
+
+    month = utc_dt.month
+    day = utc_dt.day
+    hour = utc_dt.hour
+    minute = utc_dt.minute
+    total_min = hour * 60 + minute
+
+    # US Daylight Saving Time: ~2nd Sunday in March to 1st Sunday in November
+    is_dst = (3 < month < 11) or (month == 3 and day >= 8) or (month == 11 and day < 7)
+    
+    # 8:30 AM ET in UTC: 12:30 UTC in DST (EDT), 13:30 UTC in Standard Time (EST)
+    m830_center = 750 if is_dst else 810
+    # 2:00 PM ET in UTC: 18:00 UTC in DST (EDT), 19:00 UTC in Standard Time (EST)
+    m200pm_center = 1080 if is_dst else 1140
+
+    # 1. NFP (Non-Farm Payrolls): First Friday of the month (8:30 AM ET)
+    if weekday == 4 and day <= 7:
+        if (m830_center - 15) <= total_min <= (m830_center + 20):
+            return True, "US NFP (Non-Farm Payrolls) Release Window (Major Volatility Shield)"
+
+    # 2. US CPI (Consumer Price Index): Second Tuesday or Wednesday of the month (8:30 AM ET)
+    if weekday in (1, 2) and (9 <= day <= 15):
+        if (m830_center - 15) <= total_min <= (m830_center + 20):
+            return True, "US CPI (Consumer Price Index) Release Window (Inflation Volatility Shield)"
+
+    # 3. Core PPI & Retail Sales: Mid-month Thursday (8:30 AM ET)
+    if weekday == 3 and (11 <= day <= 17):
+        if (m830_center - 15) <= total_min <= (m830_center + 15):
+            return True, "US Retail Sales / PPI Release Window"
+
+    # 4. FOMC Statement / Fed Funds Rate: 3rd Wednesday of the month (2:00 PM ET)
+    if weekday == 2 and (15 <= day <= 22):
+        if (m200pm_center - 15) <= total_min <= (m200pm_center + 30):
+            return True, "FOMC / Fed Rate Decision News Window (High Volatility Shield)"
+
+    return False, "Clear of High-Impact News"
 
 
