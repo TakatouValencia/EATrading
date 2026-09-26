@@ -299,7 +299,6 @@ async def run_smc_analysis(tick: dict):
             # Combine H1, M15 and M5 institutional POIs (refined, tight zones)
             combined_obs = h1_obs + m15_obs + m5_obs
             combined_fvgs = h1_fvgs + m15_fvgs + m5_fvgs
-            combined_ifvgs = (engine_h1.detect_inversion_fvg() if engine_h1 else []) + engine_m15.detect_inversion_fvg() + (engine_m5.detect_inversion_fvg() if engine_m5 else [])
             combined_breakers = m15_breakers + m5_breakers
             combined_qms = engine_m15.detect_quasimodo() + (engine_m5.detect_quasimodo() if engine_m5 else [])
             combined_rbs = engine_m15.detect_rbs_sbr() + (engine_m5.detect_rbs_sbr() if engine_m5 else [])
@@ -363,7 +362,6 @@ async def run_smc_analysis(tick: dict):
                             events=m15_events + (m5_events if m5_events else []),
                             obs=combined_obs,
                             fvgs=combined_fvgs,
-                            ifvgs=combined_ifvgs,
                             smt_divergence=smt_divergence,
                             sweeps=sweeps,
                             m15_trend=m15_trend,

@@ -321,13 +321,6 @@ class SignalGenerator:
                         if c_low <= o['top'] and current_price >= o['bottom'] - 0.5:
                             is_fresh = o.get('is_fresh', True) or (o.get('touch_count', 0) <= 1)
                             valid_pois.append(("OB", o, o['top'], o['bottom'], is_fresh, o.get('touch_count', 0)))
-                
-                # Check Inversion FVGs (IFVG)
-                candidate_ifvgs = [iv for iv in (ifvgs or []) if iv.get('type') == 'IFVG_BULLISH' and not iv.get('mitigated', False)]
-                for iv in candidate_ifvgs:
-                    if not pd_zones or iv['bottom'] <= eq_level:
-                        if c_low <= iv['top'] and current_price >= iv['bottom'] - 0.5:
-                            valid_pois.append(("IFVG", iv, iv['top'], iv['bottom'], True, 0))
 
                 if not valid_pois:
                     return None
@@ -337,7 +330,7 @@ class SignalGenerator:
                     return None
 
                 # Prioritize: 1) Fresh Virgin POI (0 previous touches), 2) FVG over OB, 3) Closeness to entry
-                valid_pois.sort(key=lambda x: (not x[4], 0 if x[0] in ["FVG", "IFVG"] else 1, abs(current_price - x[2])))
+                valid_pois.sort(key=lambda x: (not x[4], 0 if x[0] == "FVG" else 1, abs(current_price - x[2])))
                 poi_type, poi_obj, poi_top, poi_bottom, is_fresh_zone, touch_cnt = valid_pois[0]
                 exec_type = "CONFIRMED"
                 entry_target = round(min(current_price, poi_top + 0.4), 2 if is_xau else 5)
@@ -365,13 +358,6 @@ class SignalGenerator:
                         if c_high >= o['bottom'] and current_price <= o['top'] + 0.5:
                             is_fresh = o.get('is_fresh', True) or (o.get('touch_count', 0) <= 1)
                             valid_pois.append(("OB", o, o['top'], o['bottom'], is_fresh, o.get('touch_count', 0)))
-                
-                # Check Inversion FVGs (IFVG)
-                candidate_ifvgs = [iv for iv in (ifvgs or []) if iv.get('type') == 'IFVG_BEARISH' and not iv.get('mitigated', False)]
-                for iv in candidate_ifvgs:
-                    if not pd_zones or iv['top'] >= eq_level:
-                        if c_high >= iv['bottom'] and current_price <= iv['top'] + 0.5:
-                            valid_pois.append(("IFVG", iv, iv['top'], iv['bottom'], True, 0))
 
                 if not valid_pois:
                     return None
@@ -380,7 +366,7 @@ class SignalGenerator:
                     return None
 
                 # Prioritize: 1) Fresh Virgin POI, 2) FVG over OB, 3) Closeness to entry
-                valid_pois.sort(key=lambda x: (not x[4], 0 if x[0] in ["FVG", "IFVG"] else 1, abs(current_price - x[3])))
+                valid_pois.sort(key=lambda x: (not x[4], 0 if x[0] == "FVG" else 1, abs(current_price - x[3])))
                 poi_type, poi_obj, poi_top, poi_bottom, is_fresh_zone, touch_cnt = valid_pois[0]
                 exec_type = "CONFIRMED"
                 entry_target = round(max(current_price, poi_bottom - 0.4), 2 if is_xau else 5)
