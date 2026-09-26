@@ -570,7 +570,7 @@ class SignalGenerator:
         reasons_list = [ui_badge] + best['reasons']
         reasons_list.append(f"Target Utama TP (+{tp_pips:.0f}p): {tp_val} (Full HTF Institutional Target)")
         reasons_list.append(f"Securing Bank TP1 (+{tp1_pips:.0f}p): {tp1_val} (Kunci Profit 50%)")
-        reasons_list.append("Auto Break-Even: Aktif di +65p (Memberi Ruang Napas Intraday Gold)")
+        reasons_list.append("Auto Break-Even: Aktif di +50p (1:1 RRR Proteksi Modal)")
         reasons_list.append(f"SMC Grade: {best['grade']} (RRR Target TP 1:{best['rr_ratio']})")
 
         signal = {

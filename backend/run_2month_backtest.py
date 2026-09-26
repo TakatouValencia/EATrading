@@ -353,8 +353,8 @@ Target Asset           : XAU/USD (Gold)
 Timeframe Eksekusi     : M5 (LTF Entry) & M15 (HTF Structure)
 Filter HTF             : H4 & D1 Trend Alignment (Strict Institutional Flow)
 Setup Engine           : Dual SMC (Major Liquidity Sweep Reversal + Trend Continuation)
-Filter Sesi            : Asian (07:00-12:00 WIB), London (12:00-18:00 WIB), NY (18:00-01:00 WIB)
-Manajemen Risiko       : Dynamic SL (POI Extreme + Buffer 18p, Floor 50p, Cap 70p), Breathing Room BE di +65p
+Filter Sesi            : Asian (07:00-11:30 WIB), London (13:00-17:30 WIB), NY (19:30-01:00 WIB)
+Manajemen Risiko       : Dynamic SL (POI Extreme + Buffer 18p, Floor 50p, Cap 70p), Proteksi Modal BE di +50p (1:1 RRR)
 Eksekusi TP            : TP1 (+120p Kunci Profit 50%) + TP2 (+180-220p HTF Institutional Target)
 ----------------------------------------------------------------------
 RINGKASAN HASIL EKSEKUSI:

@@ -91,7 +91,7 @@ def get_weekly_recap_data(days: int = 7) -> Dict:
     end_date = now.strftime("%d %b %Y")
 
     return {
-        "period": f"{start_date} – {end_date}",
+        "period": f"{start_date} - {end_date}",
         "total_trades": total_trades,
         "wins": wins,
         "losses": losses,

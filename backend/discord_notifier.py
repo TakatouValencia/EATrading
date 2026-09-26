@@ -126,7 +126,7 @@ async def send_discord_be_alert(trade: dict, new_sl: float):
     
     embed = {
         "title": f"🛡️ [BREAK-EVEN ACTIVE] {symbol} Posisi Aman (100% Risk Free) 🛡️",
-        "description": f"Trade {symbol} telah running profit **+70 pips / +1.0R**! Stop Loss otomatis dimajukan ke Break-Even.",
+        "description": f"Trade {symbol} telah running profit **+50 pips (1:1 RRR)**! Stop Loss otomatis dimajukan ke Break-Even (+2p buffer).",
         "color": 0x3B82F6,
         "fields": [
             {"name": "Pair & Type", "value": f"**{symbol}** | **{trade.get('type')}**", "inline": True},
