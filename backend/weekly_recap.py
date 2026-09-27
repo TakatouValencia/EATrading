@@ -40,6 +40,17 @@ def get_weekly_recap_data(days: int = 7) -> Dict:
         except Exception as e:
             print(f"Error querying local DB for weekly recap: {e}")
 
+    # Check for live audited weekly transactions JSON (preserves real trades across cloud redeployments)
+    audit_path = os.path.join(os.path.dirname(__file__), 'live_weekly_audit.json')
+    if len(trades) < 2 and os.path.exists(audit_path):
+        try:
+            with open(audit_path, 'r', encoding='utf-8') as f:
+                audit_trades = json.load(f)
+            if isinstance(audit_trades, list) and len(audit_trades) > 0:
+                trades = audit_trades
+        except Exception as e:
+            print(f"Error loading live weekly audit JSON: {e}")
+
     # Fallback to transactions from backtest_2month_report if no live trades recorded this week
     report_path = os.path.join(os.path.dirname(__file__), 'backtest_2month_report.txt')
     if len(trades) < 2 and os.path.exists(report_path):
@@ -104,7 +115,7 @@ def get_weekly_recap_data(days: int = 7) -> Dict:
     est_pips = net_pnl * 60.0
 
     # Ensure period strictly matches the trades displayed
-    valid_dates = [t['timestamp'][:10] for t in trades if t.get('timestamp')]
+    valid_dates = [(t.get('timestamp') or t.get('created_at') or '')[:10] for t in trades if (t.get('timestamp') or t.get('created_at'))]
     if valid_dates:
         min_d = datetime.strptime(min(valid_dates), "%Y-%m-%d")
         max_d = datetime.strptime(max(valid_dates), "%Y-%m-%d")
@@ -149,7 +160,7 @@ def send_discord_weekly_recap(recap: Optional[Dict] = None) -> bool:
         pnl = t.get('pnl', 0.0)
         pnl_str = f"{'+' if pnl > 0 else ''}{pnl:.2f}R"
         icon = "🎯" if "TP" in outcome or pnl > 0 else ("🛡️" if "BE" in outcome or pnl == 0 else "🛑")
-        ts = t.get('timestamp', '')[:16].replace('T', ' ')
+        ts = (t.get('timestamp') or t.get('created_at') or '')[:16].replace('T', ' ')
         trade_bullets.append(f"{icon} `#{idx}` **{t.get('type', 'TRADE')}** ({ts}) | Status: **{outcome}** | PnL: **{pnl_str}**")
         
     if not trade_bullets:
