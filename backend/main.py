@@ -564,19 +564,6 @@ async def get_stats():
     """Fetch trade statistics (win rate, etc)."""
     return db.get_statistics()
 
-@app.get("/api/weekly-recap")
-async def get_weekly_recap():
-    """Fetch weekly performance summary."""
-    from weekly_recap import get_weekly_recap_data
-    return get_weekly_recap_data()
-
-@app.post("/api/send-weekly-recap")
-async def broadcast_weekly_recap():
-    """Broadcast weekly recap to Discord channel."""
-    from weekly_recap import send_discord_weekly_recap, get_weekly_recap_data
-    recap = get_weekly_recap_data()
-    sent = send_discord_weekly_recap(recap)
-    return {"status": "success" if sent else "failed", "recap": recap}
 
 class SettingsModel(BaseModel):
     account_balance: float
