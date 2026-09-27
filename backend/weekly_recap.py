@@ -40,15 +40,16 @@ def get_weekly_recap_data(days: int = 7) -> Dict:
         except Exception as e:
             print(f"Error querying local DB for weekly recap: {e}")
 
-    # Fallback to recent transactions from backtest_2month_report if no live trades recorded this week
+    # Fallback to transactions from backtest_2month_report if no live trades recorded this week
     report_path = os.path.join(os.path.dirname(__file__), 'backtest_2month_report.txt')
     if len(trades) < 2 and os.path.exists(report_path):
         try:
             with open(report_path, 'r', encoding='utf-8') as f:
                 lines = f.readlines()
-            for line in lines[-25:]: # Take last ~25 trades
+            all_report_trades = []
+            for line in lines:
                 line = line.strip()
-                if line and line[0].isdigit() and "|" in line:
+                if line and line[0].isdigit() and "." in line[:5] and "|" in line:
                     parts = [p.strip() for p in line.split("|")]
                     # Example: 48. [2026-08-27T13:25] SELL @ 4643.10 | SL: 4648.10 (-50.0p) | TP1: ... | Status: TP2_FULL_HIT | PnL: +3.29R
                     ts = parts[0].split("[")[1].split("]")[0] if "[" in parts[0] else ""
@@ -57,7 +58,7 @@ def get_weekly_recap_data(days: int = 7) -> Dict:
                     pnl_raw = float(parts[-1].replace("PnL:", "").replace("R", "").strip()) if len(parts) >= 6 else 1.0
                     
                     status = "WIN" if "TP" in status_raw else ("BREAK_EVEN" if "BE" in status_raw else "LOSS")
-                    trades.append({
+                    all_report_trades.append({
                         "timestamp": ts,
                         "symbol": "XAU/USD",
                         "type": sig_type,
@@ -65,8 +66,23 @@ def get_weekly_recap_data(days: int = 7) -> Dict:
                         "outcome": status_raw,
                         "pnl": pnl_raw
                     })
-            # Take the latest 7-10 trades to represent the week
-            trades = trades[-8:]
+            
+            # Filter trades that belong to the current week (past 7 days)
+            cutoff_date = (now - timedelta(days=days)).strftime("%Y-%m-%d")
+            week_trades = [t for t in all_report_trades if t['timestamp'][:10] >= cutoff_date]
+            
+            if week_trades:
+                trades = week_trades
+            elif all_report_trades:
+                # If current week has no trades yet, get the latest week cluster from report
+                last_date_str = all_report_trades[-1]['timestamp'][:10]
+                try:
+                    last_trade_dt = datetime.strptime(last_date_str, "%Y-%m-%d")
+                    cluster_cutoff = (last_trade_dt - timedelta(days=6)).strftime("%Y-%m-%d")
+                    cluster_trades = [t for t in all_report_trades if t['timestamp'][:10] >= cluster_cutoff]
+                    trades = cluster_trades if cluster_trades else all_report_trades[-8:]
+                except Exception:
+                    trades = all_report_trades[-8:]
         except Exception as e:
             print(f"Error parsing report for weekly recap: {e}")
 
@@ -87,11 +103,19 @@ def get_weekly_recap_data(days: int = 7) -> Dict:
     # Calculate estimated net pips (assuming average SL is 50-70p, ~60p = 1R)
     est_pips = net_pnl * 60.0
 
-    start_date = (now - timedelta(days=6)).strftime("%d %b %Y")
-    end_date = now.strftime("%d %b %Y")
+    # Ensure period strictly matches the trades displayed
+    valid_dates = [t['timestamp'][:10] for t in trades if t.get('timestamp')]
+    if valid_dates:
+        min_d = datetime.strptime(min(valid_dates), "%Y-%m-%d")
+        max_d = datetime.strptime(max(valid_dates), "%Y-%m-%d")
+        period_str = f"{min_d.strftime('%d %b %Y')} - {max_d.strftime('%d %b %Y')}"
+    else:
+        start_date = (now - timedelta(days=6)).strftime("%d %b %Y")
+        end_date = now.strftime("%d %b %Y")
+        period_str = f"{start_date} - {end_date}"
 
     return {
-        "period": f"{start_date} - {end_date}",
+        "period": period_str,
         "total_trades": total_trades,
         "wins": wins,
         "losses": losses,

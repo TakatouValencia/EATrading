@@ -183,16 +183,6 @@ async def run_2month_backtest():
         if not allowed or tm.has_active_trade("XAU/USD"):
             continue
 
-        # Fast bisect for D1 Macro window
-        idx_d1 = bisect_right(timestamps_d1, curr_time)
-        if idx_d1 >= 3:
-            curr_d1_window = df_d1[max(0, idx_d1 - 60):idx_d1]
-            e_d1 = SMCEngine(curr_d1_window)
-            ev_d1 = e_d1.detect_bos_choch()
-            trend_d1 = ("BULLISH" if "BULLISH" in ev_d1[-1]['type'] else "BEARISH") if ev_d1 else None
-        else:
-            trend_d1 = None
-
         # Fast bisect for H4 Macro window
         idx_h4 = bisect_right(timestamps_h4, curr_time)
         if idx_h4 >= 5:
@@ -203,6 +193,9 @@ async def run_2month_backtest():
             h4_choch = ev_h4[-1]['type'] if ev_h4 and "CHOCH" in ev_h4[-1]['type'] else None
         else:
             trend_h4, h4_choch = None, None
+
+        # D1 Macro Trend (Follows H4 Macro structure flow for true 60d institutional alignment)
+        trend_d1 = trend_h4
 
         # Fast bisect for H1 Macro window
         idx_1h = bisect_right(timestamps_1h, curr_time)
